@@ -21,3 +21,7 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+dist-newstyle/
+.DS_Store
+stack.yaml.lock
+.vscode/
