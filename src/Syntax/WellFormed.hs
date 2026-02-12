@@ -13,7 +13,6 @@ import qualified Data.Map.Lazy as Env
 import qualified Data.Set as Set
 import Syntax.AST
 import Syntax.Parser (parseGlobalType, parseLocalType)
-import Text.Megaparsec (errorBundlePretty)
 
 data WFError
   = FreeTypeVar TypeVar
