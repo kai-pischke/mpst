@@ -27,6 +27,8 @@ library:
     - Automata
     - Balanced
     - Project
+    - Safety
+    - Liveness
     - Visualise
   other-modules:
     - Syntax.AST
@@ -49,6 +51,13 @@ tests:
   mpst-test:
     main: Spec.hs
     source-dirs: test
+    other-modules:
+      - BalancedSpec
+      - ProjectionSpec
+      - SafetySpec
+      - LivenessSpec
+      - RoundtripSpec
+      - WellFormedSpec
     ghc-options:
       - -threaded
       - -rtsopts
@@ -56,3 +65,4 @@ tests:
     dependencies:
       - mpst
       - QuickCheck
+      - hspec

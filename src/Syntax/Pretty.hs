@@ -1,3 +1,4 @@
+-- | Pretty-printers for global and local session types.
 module Syntax.Pretty
   ( prettyGlobalType
   , prettyLocalType
@@ -21,6 +22,7 @@ import Prettyprinter
 import Prettyprinter.Render.String (renderString)
 import Syntax.AST
 
+-- | Pretty-print a global type as a document.
 prettyGlobalType :: GlobalType -> Doc ann
 prettyGlobalType (GMessage p q bs) =
   hsep [prettyParticipant p, pretty "->", prettyParticipant q, prettyBranches prettyGlobalType bs]
@@ -28,6 +30,7 @@ prettyGlobalType (GVar v) = prettyTypeVar v
 prettyGlobalType (GRec v g) = hsep [pretty "rec", prettyTypeVar v, pretty ".", prettyGlobalType g]
 prettyGlobalType GEnd = pretty "end"
 
+-- | Pretty-print a local type as a document.
 prettyLocalType :: LocalType -> Doc ann
 prettyLocalType (LSend p bs) = hsep [prettyParticipant p, pretty "!", prettyBranches prettyLocalType bs]
 prettyLocalType (LRecv p bs) = hsep [prettyParticipant p, pretty "?", prettyBranches prettyLocalType bs]
@@ -35,9 +38,11 @@ prettyLocalType (LVar v) = prettyTypeVar v
 prettyLocalType (LRec v t) = hsep [pretty "rec", prettyTypeVar v, pretty ".", prettyLocalType t]
 prettyLocalType LEnd = pretty "end"
 
+-- | Render a global type to a 'String'.
 renderGlobalType :: GlobalType -> String
 renderGlobalType = renderDoc . prettyGlobalType
 
+-- | Render a local type to a 'String'.
 renderLocalType :: LocalType -> String
 renderLocalType = renderDoc . prettyLocalType
 

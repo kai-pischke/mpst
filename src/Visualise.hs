@@ -1,3 +1,4 @@
+-- | Graphviz rendering for global and local automata.
 module Visualise
   ( globalDot
   , localDot
@@ -98,10 +99,12 @@ edgeAttrs (_, _, l) =
   , toLabel l
   ]
 
+-- | Human-readable edge text for global automata.
 globalEdgeLabel :: GlobalEdgeLabel -> String
 globalEdgeLabel (GlobalEdgeLabel sender receiver lbl) =
   participantText sender ++ " → " ++ participantText receiver ++ " : " ++ labelText lbl
 
+-- | Human-readable edge text for local automata.
 localEdgeLabel :: LocalEdgeLabel -> String
 localEdgeLabel (LocalEdgeLabel dir peer lbl) =
   case dir of

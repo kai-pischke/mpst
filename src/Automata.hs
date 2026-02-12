@@ -1,3 +1,4 @@
+-- | Builders and graph representations for global and local protocol automata.
 module Automata
   ( GlobalGraph(..)
   , GlobalNode(..)
@@ -57,11 +58,13 @@ graphBounds builder
 
 -- Global graphs
 
+-- | Node kind in a global automaton.
 data GlobalNode
   = GlobalNode
   | GlobalEndNode
   deriving (Eq, Show)
 
+-- | Edge label in a global automaton: sender, receiver, and branch label.
 data GlobalEdgeLabel = GlobalEdgeLabel
   { geSender :: Participant
   , geReceiver :: Participant
@@ -69,6 +72,7 @@ data GlobalEdgeLabel = GlobalEdgeLabel
   }
   deriving (Eq, Ord, Show)
 
+-- | Concrete graph representation for a global protocol type.
 data GlobalGraph = GlobalGraph
   { ggGraph :: G.Graph
   , ggStart :: G.Vertex
@@ -77,6 +81,7 @@ data GlobalGraph = GlobalGraph
   }
   deriving (Eq, Show)
 
+-- | Build a global automaton from a global type.
 buildGlobalGraph :: GlobalType -> GlobalGraph
 buildGlobalGraph gType =
   let (start, builder) = runState (globalNode Env.empty gType) emptyBuilder
@@ -110,9 +115,11 @@ finaliseGlobal start builder =
 
 -- Local graphs
 
+-- | Local communication action direction on an edge.
 data LocalDirection = Send | Receive
   deriving (Eq, Ord, Show)
 
+-- | Edge label in a local automaton.
 data LocalEdgeLabel = LocalEdgeLabel
   { leDirection :: LocalDirection
   , lePeer :: Participant
@@ -120,12 +127,14 @@ data LocalEdgeLabel = LocalEdgeLabel
   }
   deriving (Eq, Ord, Show)
 
+-- | Node kind in a local automaton.
 data LocalNode
   = LocalSendNode Participant [Label]
   | LocalRecvNode Participant [Label]
   | LocalEndNode
   deriving (Eq, Show)
 
+-- | Concrete graph representation for a projected/local protocol type.
 data LocalGraph = LocalGraph
   { lgGraph :: G.Graph
   , lgStart :: G.Vertex
@@ -134,6 +143,7 @@ data LocalGraph = LocalGraph
   }
   deriving (Eq, Show)
 
+-- | Build a local automaton from a local type.
 buildLocalGraph :: LocalType -> LocalGraph
 buildLocalGraph lType =
   let (start, builder) = runState (localNode Env.empty lType) emptyBuilder

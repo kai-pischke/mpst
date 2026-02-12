@@ -1,3 +1,4 @@
+-- | Well-formedness checking for global and local session types.
 module Syntax.WellFormed
   ( WFError(..)
   , checkGlobalType
@@ -14,6 +15,7 @@ import qualified Data.Set as Set
 import Syntax.AST
 import Syntax.Parser (parseGlobalType, parseLocalType)
 
+-- | Errors produced by well-formedness validation.
 data WFError
   = FreeTypeVar TypeVar
   | UnguardedTypeVar TypeVar
@@ -21,18 +23,21 @@ data WFError
   | DuplicateLabel Label
   deriving (Eq, Ord, Show)
 
+-- | Validate a global type and return either all detected errors or success.
 validateGlobalType :: GlobalType -> Either [WFError] ()
 validateGlobalType g =
   case checkGlobalType g of
     [] -> Right ()
     es -> Left es
 
+-- | Validate a local type and return either all detected errors or success.
 validateLocalType :: LocalType -> Either [WFError] ()
 validateLocalType t =
   case checkLocalType t of
     [] -> Right ()
     es -> Left es
 
+-- | Parse and then validate a global type.
 parseGlobalTypeChecked :: String -> Either String GlobalType
 parseGlobalTypeChecked src = do
   g <- firstParse (parseGlobalType src)
@@ -40,6 +45,7 @@ parseGlobalTypeChecked src = do
     Left es -> Left (renderErrors es)
     Right _ -> Right g
 
+-- | Parse and then validate a local type.
 parseLocalTypeChecked :: String -> Either String LocalType
 parseLocalTypeChecked src = do
   t <- firstParse (parseLocalType src)
@@ -53,6 +59,7 @@ firstParse = either (Left . show) Right
 renderErrors :: [WFError] -> String
 renderErrors = unlines . fmap show
 
+-- | Collect all well-formedness errors for a global type.
 checkGlobalType :: GlobalType -> [WFError]
 checkGlobalType = checkGlobal Env.empty
 
@@ -74,6 +81,7 @@ checkGlobal env gtype =
       checkGlobal (Env.insert v False env) body
     GEnd -> []
 
+-- | Collect all well-formedness errors for a local type.
 checkLocalType :: LocalType -> [WFError]
 checkLocalType = checkLocal Env.empty
 

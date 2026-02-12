@@ -1,3 +1,4 @@
+-- | Core syntax tree definitions for global and local session types.
 module Syntax.AST
   ( Participant(..)
   , Label(..)

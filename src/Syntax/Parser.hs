@@ -1,3 +1,4 @@
+-- | Megaparsec parsers for global and local session types.
 module Syntax.Parser
   ( Parser
   , parseGlobalType
@@ -26,14 +27,18 @@ import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char (alphaNumChar, char, letterChar, space1, string)
 import qualified Text.Megaparsec.Char.Lexer as L
 
+-- | Parser type used across syntax modules.
 type Parser = Parsec Void String
 
+-- | Parse a full global type expression.
 parseGlobalType :: String -> Either (ParseErrorBundle String Void) GlobalType
 parseGlobalType = MP.parse (sc *> globalTypeParser <* eof) "global type"
 
+-- | Parse a full local type expression.
 parseLocalType :: String -> Either (ParseErrorBundle String Void) LocalType
 parseLocalType = MP.parse (sc *> localTypeParser <* eof) "local type"
 
+-- | Parser for /global/ type terms.
 globalTypeParser :: Parser GlobalType
 globalTypeParser =
   label "global type" . choice $
@@ -52,6 +57,7 @@ globalTypeParser =
       branches <- branchBlock globalTypeParser
       pure (GMessage sender receiver branches)
 
+-- | Parser for /local/ type terms.
 localTypeParser :: Parser LocalType
 localTypeParser =
   label "local type" . choice $

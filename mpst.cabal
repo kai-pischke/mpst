@@ -22,6 +22,8 @@ library
       Automata
       Balanced
       Project
+      Safety
+      Liveness
       Visualise
   other-modules:
       Syntax.AST
@@ -68,9 +70,12 @@ test-suite mpst-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_mpst
-  autogen-modules:
-      Paths_mpst
+      BalancedSpec
+      ProjectionSpec
+      SafetySpec
+      LivenessSpec
+      RoundtripSpec
+      WellFormedSpec
   hs-source-dirs:
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
@@ -80,6 +85,7 @@ test-suite mpst-test
     , base >=4.14 && <5
     , containers
     , graphviz
+    , hspec
     , megaparsec
     , mpst
     , mtl

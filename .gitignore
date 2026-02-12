@@ -25,3 +25,8 @@ dist-newstyle/
 .DS_Store
 stack.yaml.lock
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.png

@@ -1,3 +1,5 @@
+-- | Convenience module re-exporting syntax AST, parser, pretty-printer,
+-- and well-formedness checks.
 module Syntax
   ( module Syntax.AST
   , module Syntax.Parser
