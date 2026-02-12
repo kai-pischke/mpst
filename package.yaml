@@ -26,12 +26,16 @@ library:
     - Syntax
     - Automata
     - Balanced
+    - DeadlockFreedom
+    - Merge
     - Project
     - Safety
+    - Subtyping
     - Liveness
     - Visualise
   other-modules:
     - Syntax.AST
+    - Syntax.AlphaEq
     - Syntax.Parser
     - Syntax.Pretty
     - Syntax.WellFormed
@@ -52,11 +56,17 @@ tests:
     main: Spec.hs
     source-dirs: test
     other-modules:
+      - AutomataReconstructionSpec
       - BalancedSpec
+      - ContextRandomSpec
+      - DeadlockFreedomSpec
+      - Fig4VennSpec
       - ProjectionSpec
       - SafetySpec
+      - SubtypingSpec
       - LivenessSpec
       - RoundtripSpec
+      - TestGenerators
       - WellFormedSpec
     ghc-options:
       - -threaded

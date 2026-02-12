@@ -101,12 +101,12 @@ edgeAttrs (_, _, l) =
 
 -- | Human-readable edge text for global automata.
 globalEdgeLabel :: GlobalEdgeLabel -> String
-globalEdgeLabel (GlobalEdgeLabel sender receiver lbl) =
+globalEdgeLabel (GlobalEdgeLabel sender receiver lbl _) =
   participantText sender ++ " → " ++ participantText receiver ++ " : " ++ labelText lbl
 
 -- | Human-readable edge text for local automata.
 localEdgeLabel :: LocalEdgeLabel -> String
-localEdgeLabel (LocalEdgeLabel dir peer lbl) =
+localEdgeLabel (LocalEdgeLabel dir peer lbl _) =
   case dir of
     Send -> "!" ++ participantText peer ++ " : " ++ labelText lbl
     Receive -> "?" ++ participantText peer ++ " : " ++ labelText lbl

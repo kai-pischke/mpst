@@ -21,12 +21,16 @@ library
       Syntax
       Automata
       Balanced
+      DeadlockFreedom
+      Merge
       Project
       Safety
+      Subtyping
       Liveness
       Visualise
   other-modules:
       Syntax.AST
+      Syntax.AlphaEq
       Syntax.Parser
       Syntax.Pretty
       Syntax.WellFormed
@@ -70,11 +74,17 @@ test-suite mpst-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      AutomataReconstructionSpec
       BalancedSpec
+      ContextRandomSpec
+      DeadlockFreedomSpec
+      Fig4VennSpec
       ProjectionSpec
       SafetySpec
+      SubtypingSpec
       LivenessSpec
       RoundtripSpec
+      TestGenerators
       WellFormedSpec
   hs-source-dirs:
       test
