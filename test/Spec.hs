@@ -5,7 +5,10 @@ import qualified AutomataReconstructionSpec
 import qualified ContextRandomSpec
 import qualified DeadlockFreedomSpec
 import qualified Fig4VennSpec
+import qualified LessIsMoreSpec
 import qualified LivenessSpec
+import qualified MergeSpec
+import qualified MpstkBackendSpec
 import qualified ProjectionSpec
 import qualified RoundtripSpec
 import qualified SafetySpec
@@ -23,6 +26,9 @@ main =
     DeadlockFreedomSpec.spec
     ContextRandomSpec.spec
     Fig4VennSpec.spec
+    LessIsMoreSpec.spec
+    MergeSpec.spec
+    MpstkBackendSpec.spec
     ProjectionSpec.spec
     SafetySpec.spec
     LivenessSpec.spec

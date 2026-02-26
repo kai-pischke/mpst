@@ -9,12 +9,14 @@ module MPST
   , module Subtyping
   , module Liveness
   , module Visualise
+  , module MpstkBackend
   ) where
 
 import Automata
 import Balanced
 import DeadlockFreedom
 import Liveness
+import MpstkBackend
 import Project
 import Safety
 import Subtyping

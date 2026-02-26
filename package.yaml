@@ -18,6 +18,8 @@ dependencies:
   - array
   - graphviz
   - text
+  - process
+  - temporary
 
 library:
   source-dirs: src
@@ -28,6 +30,7 @@ library:
     - Balanced
     - DeadlockFreedom
     - Merge
+    - MpstkBackend
     - Project
     - Safety
     - Subtyping
@@ -61,6 +64,9 @@ tests:
       - ContextRandomSpec
       - DeadlockFreedomSpec
       - Fig4VennSpec
+      - LessIsMoreSpec
+      - MergeSpec
+      - MpstkBackendSpec
       - ProjectionSpec
       - SafetySpec
       - SubtypingSpec
