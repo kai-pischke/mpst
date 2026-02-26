@@ -34,6 +34,7 @@ library:
     - Project
     - Safety
     - Subtyping
+    - Synthesise
     - Liveness
     - Visualise
   other-modules:
@@ -70,6 +71,7 @@ tests:
       - ProjectionSpec
       - SafetySpec
       - SubtypingSpec
+      - SynthesiseSpec
       - LivenessSpec
       - RoundtripSpec
       - TestGenerators

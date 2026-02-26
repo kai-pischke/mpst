@@ -10,6 +10,7 @@ module MPST
   , module Liveness
   , module Visualise
   , module MpstkBackend
+  , module Synthesise
   ) where
 
 import Automata
@@ -20,5 +21,6 @@ import MpstkBackend
 import Project
 import Safety
 import Subtyping
+import Synthesise
 import Syntax
 import Visualise

@@ -13,6 +13,7 @@ import qualified ProjectionSpec
 import qualified RoundtripSpec
 import qualified SafetySpec
 import qualified SubtypingSpec
+import qualified SynthesiseSpec
 import Test.Hspec (hspec)
 import qualified WellFormedSpec
 
@@ -33,3 +34,4 @@ main =
     SafetySpec.spec
     LivenessSpec.spec
     SubtypingSpec.spec
+    SynthesiseSpec.spec
