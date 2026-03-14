@@ -76,7 +76,7 @@ projectCoinductivePlain gg p = do
           }
   st <- exploreCoind False env st0
   materialiseLocalGraph (csBuild st) (ProjectionTarget 0 (hintsToPreference (ggStartVarHints gg)))
-projectInductiveFull = projectInductiveWith True False fullMerge
+projectInductiveFull = projectInductiveWith True fullMerge
 
 data CoindVertexInfo
   = CoindEnd
@@ -330,7 +330,7 @@ analyseClosedState allowRecvUnion env involvedSet = do
         CoindPayloadInvolved dir peer pt _ -> do
           let edges = mapMaybe toPayload (first : rest)
               nextSet = Set.fromList (fmap (snd . snd) edges)
-              hints = foldl' appendHints emptyHints (fmap (hintsToPreference . gpeTargetHints . fst . snd) edges)
+              hints = foldl' appendHints emptyRecVarHints (fmap (hintsToPreference . gpeTargetHints . fst . snd) edges)
           pure (CoindPayloadChoice dir peer pt (nextSet, hints))
   where
     classify v = do
@@ -412,7 +412,7 @@ analyseClosedState allowRecvUnion env involvedSet = do
     mkTransition infos lbl =
       let picks = mapMaybe (Map.lookup lbl . ciOutgoing) infos
           nextSet = Set.fromList (fmap snd picks)
-          hints = foldl' appendHints emptyHints (fmap (hintsToPreference . geTargetHints . fst) picks)
+          hints = foldl' appendHints emptyRecVarHints (fmap (hintsToPreference . geTargetHints . fst) picks)
        in (lbl, nextSet, hints)
 
 lookupCoindVertex :: CoindEnv -> G.Vertex -> Either ProjectionError CoindVertexInfo
@@ -422,37 +422,25 @@ lookupCoindVertex env v =
     Right
     (Map.lookup v (ceVertices env))
 
-emptyHints :: RecVarHints
-emptyHints = RecVarHints [] Nothing
-
 -- | Inductive/plain projection is inductive projection parameterised by
 -- plain merge (isomorphic branches only).
 projectInductivePlain :: GlobalGraph -> Participant -> ProjectionResult
-projectInductivePlain = projectInductiveWith False False plainMerge
+projectInductivePlain = projectInductiveWith False plainMerge
 
 -- | Generic inductive projection parameterised by a branch-merge operator.
--- When @deferMerges@ is True, merge checks at ignored nodes are deferred
--- until after the full DFS completes, so that back-edges are present in
--- the build graph.  This is needed for bisimilarity-based merge (CP),
--- where incomplete materialisation during DFS would incorrectly reject
--- bisimilar branches.  For isomorphism-based merge (IP, IF), immediate
--- merge is correct because incomplete back-references faithfully represent
--- the syntactic distinction between different recursion depths.
-projectInductiveWith :: Bool -> Bool -> Merge -> GlobalGraph -> Participant -> ProjectionResult
-projectInductiveWith allowRecvUnion deferMerges mergeFn gg p = do
+projectInductiveWith :: Bool -> Merge -> GlobalGraph -> Participant -> ProjectionResult
+projectInductiveWith allowRecvUnion mergeFn gg p = do
   let env =
         ProjEnv
           { peParticipant = p
           , peAllowRecvUnion = allowRecvUnion
-          , peDeferMerges = deferMerges
           , peMerge = mergeFn
           , peGlobalNodes = Map.fromList (assocs (ggNodes gg))
           , peOutgoing = globalOutgoing (ggEdgeLabels gg)
           , pePayloadOutgoing = globalPayloadOutgoing gg
           }
-      st0 = ProjState 1 Map.empty emptyBuildGraph []
+      st0 = ProjState 1 Map.empty emptyBuildGraph
   (target, st) <- runStateT (projectAt env Set.empty (hintsToPreference (ggStartVarHints gg)) (ggStart gg) 0) st0
-  verifyDeferredMerges mergeFn (psBuild st) (psDeferredMerges st)
   materialiseLocalGraph (psBuild st) target
 
 data ProjectionAction = ProjectSend Participant | ProjectReceive Participant
@@ -475,20 +463,16 @@ emptyBuildGraph = BuildGraph Map.empty [] []
 data ProjEnv = ProjEnv
   { peParticipant :: Participant
   , peAllowRecvUnion :: Bool
-  , peDeferMerges :: Bool
   , peMerge :: Merge
   , peGlobalNodes :: Map.Map G.Vertex GlobalNode
   , peOutgoing :: Map.Map G.Vertex [(GlobalEdgeLabel, G.Vertex)]
   , pePayloadOutgoing :: Map.Map G.Vertex [(GlobalPayloadEdgeLabel, G.Vertex)]
   }
 
-data DeferredMerge = DeferredMerge !G.Vertex [ProjectionTarget]
-
 data ProjState = ProjState
   { psNextFresh :: !G.Vertex
   , psGlobalToLocal :: Map.Map G.Vertex G.Vertex
   , psBuild :: BuildGraph
-  , psDeferredMerges :: [DeferredMerge]
   }
 
 type ProjM a = StateT ProjState (Either ProjectionError) a
@@ -577,22 +561,11 @@ mergeIgnoredTargetsM env gv targets =
     [] ->
       failProjection ("Invalid global graph: ignored vertex " ++ show gv ++ " has no outgoing branches.")
     [one] -> pure one
-    firstT : rest
-      | peDeferMerges env -> do
-          -- Defer the merge check until after all edges have been inserted.
-          -- During DFS, back-edges from ancestor nodes haven't been added yet,
-          -- so materialising subgraphs now would produce incomplete graphs.
-          -- This is needed for bisimilarity-based merge (CP).
-          modify (\s -> s { psDeferredMerges = DeferredMerge gv (firstT : rest) : psDeferredMerges s })
-          pure firstT
-      | otherwise -> do
-          -- Immediate merge: materialise and compare now.
-          -- For iso/full merge (IP/IF), the incomplete back-references correctly
-          -- represent the syntactic distinction between different recursion depths.
-          build <- gets psBuild
-          firstG <- liftEither $ materialiseLocalGraph build firstT
-          _ <- foldM (mergeOne build) firstG rest
-          pure firstT
+    firstT : rest -> do
+      build <- gets psBuild
+      firstG <- liftEither $ materialiseLocalGraph build firstT
+      _ <- foldM (mergeOne build) firstG rest
+      pure firstT
   where
     mergeOne build accGraph otherT = do
       otherG <- liftEither $ materialiseLocalGraph build otherT
@@ -641,33 +614,6 @@ payloadOutgoingAt v out =
     Just _ -> Left (ProjectionError ("Payload vertex " ++ show v ++ " has multiple outgoing transitions."))
     Nothing -> Left (ProjectionError ("Invalid global graph: payload vertex " ++ show v ++ " has no outgoing transitions."))
 
--- | Verify all deferred merge obligations after projection is complete.
--- At this point all edges have been inserted, so materialisation is accurate.
-verifyDeferredMerges :: Merge -> BuildGraph -> [DeferredMerge] -> Either ProjectionError ()
-verifyDeferredMerges _ _ [] = Right ()
-verifyDeferredMerges mergeFn build deferred = mapM_ verifyOne deferred
-  where
-    verifyOne (DeferredMerge gv targets) =
-      case targets of
-        [] -> Left $ ProjectionError ("Invalid global graph: ignored vertex " ++ show gv ++ " has no outgoing branches.")
-        [_] -> Right ()
-        firstT : rest -> do
-          firstG <- materialiseLocalGraph build firstT
-          foldM_ (mergeOne gv) firstG rest
-
-    mergeOne gv accGraph otherT = do
-      otherG <- materialiseLocalGraph build otherT
-      case mergeFn accGraph otherG of
-        Nothing ->
-          Left $ ProjectionError
-            ( "Inductive projection failed at ignored vertex "
-                ++ show gv
-                ++ ": branch projections cannot be merged."
-            )
-        Just merged ->
-          Right merged
-
-    foldM_ f z xs = foldM f z xs >> pure ()
 
 actionFor :: Participant -> G.Vertex -> [(GlobalEdgeLabel, G.Vertex)] -> Either ProjectionError (Maybe ProjectionAction)
 actionFor p v branches =
