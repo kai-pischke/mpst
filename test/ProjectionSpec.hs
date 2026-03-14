@@ -210,6 +210,11 @@ spec =
         "d"
         "rec t1 . c ? {m: t1, m': end}"
 
+    it "[PROJ-HINT-005] coinductive-plain projects hint-bug fixture onto all participants" $
+      mapM_
+        (\p -> expectProjectionSucceeds projectCoinductivePlain gHintBug p)
+        ["a", "b", "c", "d"]
+
     it "[PROJ-CF-003] coinductive-full projects the same global onto q" $
       expectProjectionAs
         projectCoinductiveFull

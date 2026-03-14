@@ -38,7 +38,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Graph as G
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Merge (Merge, bisimMerge, fullMerge, plainMerge)
+import Merge (Merge, fullMerge, plainMerge)
 import Syntax.AST (Label, Participant, PayloadType, TypeVar)
 
 -- | Projection-specific failure.
@@ -61,10 +61,21 @@ projectCoinductiveFull gg p = do
           , csQueue = Seq.singleton startInvolved
           , csBuild = emptyBuildGraph
           }
-  st <- exploreCoind env st0
+  st <- exploreCoind True env st0
   materialiseLocalGraph (csBuild st) (ProjectionTarget 0 (hintsToPreference (ggStartVarHints gg)))
 
-projectCoinductivePlain = projectInductiveWith False True bisimMerge
+projectCoinductivePlain gg p = do
+  env <- buildCoindEnv gg p
+  startInvolved <- closureFor env (Set.singleton (ggStart gg))
+  let st0 =
+        CoindState
+          { csNext = 1
+          , csSeen = Map.singleton startInvolved 0
+          , csQueue = Seq.singleton startInvolved
+          , csBuild = emptyBuildGraph
+          }
+  st <- exploreCoind False env st0
+  materialiseLocalGraph (csBuild st) (ProjectionTarget 0 (hintsToPreference (ggStartVarHints gg)))
 projectInductiveFull = projectInductiveWith True False fullMerge
 
 data CoindVertexInfo
@@ -224,14 +235,14 @@ closureFor env seeds = finish =<< go Set.empty Set.empty False (Set.toList seeds
                   let succs = filter (`Set.notMember` visited') [dst]
                    in go visited' involved hasEnd (succs ++ pending)
 
-exploreCoind :: CoindEnv -> CoindState -> Either ProjectionError CoindState
-exploreCoind env st =
+exploreCoind :: Bool -> CoindEnv -> CoindState -> Either ProjectionError CoindState
+exploreCoind allowRecvUnion env st =
   case Seq.viewl (csQueue st) of
     Seq.EmptyL -> Right st
     stateSet Seq.:< rest -> do
       from <- lookupSeenState st stateSet
       let st1 = st {csQueue = rest}
-      step <- analyseClosedState env stateSet
+      step <- analyseClosedState allowRecvUnion env stateSet
       st2 <-
         case step of
           CoindTerminal -> do
@@ -255,7 +266,7 @@ exploreCoind env st =
                 edgeLbl = LocalPayloadEdgeLabel direction peer pt hts
             build <- insertPayloadEdge from to edgeLbl (csBuild stWithSeen)
             pure stWithSeen {csBuild = build}
-      exploreCoind env st2
+      exploreCoind allowRecvUnion env st2
   where
     stepTransition from direction peer stNow (lbl, nextRaw, hints) = do
       nextInvolved <- closureFor env nextRaw
@@ -295,8 +306,8 @@ ensureSeenState stateSet st =
 -- | Analyse a set of involved vertices to determine the local action.
 -- The input contains only vertices where the participant is sender or receiver
 -- (uninvolved vertices and end nodes have already been filtered by closureFor).
-analyseClosedState :: CoindEnv -> Set.Set G.Vertex -> Either ProjectionError CoindStep
-analyseClosedState env involvedSet = do
+analyseClosedState :: Bool -> CoindEnv -> Set.Set G.Vertex -> Either ProjectionError CoindStep
+analyseClosedState allowRecvUnion env involvedSet = do
   involved <- mapM classify (Set.toList involvedSet)
   case involved of
     [] -> Right CoindTerminal
@@ -304,7 +315,7 @@ analyseClosedState env involvedSet = do
       unless (all (consistentWith first) rest) $
         Left
           ( ProjectionError
-              ( "Coinductive-full projection failed: closed state "
+              ( "Coinductive projection failed: closed state "
                   ++ show (Set.toList involvedSet)
                   ++ " mixes incompatible role/peer actions for participant "
                   ++ show (ceParticipant env)
@@ -362,13 +373,13 @@ analyseClosedState env involvedSet = do
 
     analyseSend closedSet infos = do
       case infos of
-        [] -> Left (ProjectionError "Coinductive-full projection internal error: no branch-involved nodes.")
+        [] -> Left (ProjectionError "Coinductive projection internal error: no branch-involved nodes.")
         (first : rest) -> do
           let firstLabels = Map.keysSet (ciOutgoing first)
           unless (all (\i -> Map.keysSet (ciOutgoing i) == firstLabels) rest) $
             Left
               ( ProjectionError
-                  ( "Coinductive-full projection failed: closed state "
+                  ( "Coinductive projection failed: closed state "
                       ++ show (Set.toList closedSet)
                       ++ " has send nodes with different label sets."
                   )
@@ -379,16 +390,24 @@ analyseClosedState env involvedSet = do
 
     analyseRecv infos =
       case infos of
-        [] -> Left (ProjectionError "Coinductive-full projection internal error: no branch-involved nodes.")
-        (first : rest) ->
+        [] -> Left (ProjectionError "Coinductive projection internal error: no branch-involved nodes.")
+        (first : rest) -> do
           let allInfos = first : rest
-              allLabels =
-                foldl'
-                  (\acc i -> acc `Set.union` Map.keysSet (ciOutgoing i))
-                  Set.empty
-                  allInfos
+              firstLabels = Map.keysSet (ciOutgoing first)
+          unless (allowRecvUnion || all (\i -> Map.keysSet (ciOutgoing i) == firstLabels) rest) $
+            Left
+              ( ProjectionError
+                  ( "Coinductive-plain projection failed: closed state "
+                      ++ show (Set.toList involvedSet)
+                      ++ " has receive nodes with different label sets."
+                  )
+              )
+          let allLabels =
+                if allowRecvUnion
+                  then foldl' (\acc i -> acc `Set.union` Map.keysSet (ciOutgoing i)) Set.empty allInfos
+                  else firstLabels
               transitions = fmap (mkTransition allInfos) (Set.toAscList allLabels)
-           in Right (CoindChoice Receive (ciPeer first) transitions)
+          Right (CoindChoice Receive (ciPeer first) transitions)
 
     mkTransition infos lbl =
       let picks = mapMaybe (Map.lookup lbl . ciOutgoing) infos
