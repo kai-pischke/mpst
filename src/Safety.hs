@@ -12,7 +12,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Syntax.AST (Label, Participant)
 
--- | Safety violations detected at a reachable context state.
+-- | Safety violations detected at a sync-reachable context state.
 data SafetyError = MissingReceiveLabel
   { seVertex :: !G.Vertex
   , seSender :: Participant
@@ -25,9 +25,10 @@ data SafetyError = MissingReceiveLabel
 -- | Result of safety checking.
 type SafetyResult = Either [SafetyError] ()
 
--- | Check the safety condition on reachable context states.
+-- | Check the safety condition on sync-reachable context states.
 --
--- For each reachable state and pair @(p, q)@:
+-- For each state reachable from 'cgStart' by only taking
+-- 'ContextSyncEdge' transitions, and each pair @(p, q)@:
 --
 -- if both
 --
@@ -38,12 +39,13 @@ type SafetyResult = Either [SafetyError] ()
 -- enabled receives @q <- p@.
 checkSafety :: ContextGraph -> SafetyResult
 checkSafety cg =
-  case concatMap checkSource reachable of
+  case concatMap checkSource (Set.toList syncReachable) of
     [] -> Right ()
     errs -> Left errs
   where
-    reachable = Set.toList (Set.fromList (G.reachable (cgGraph cg) (cgStart cg)))
     outgoingBySource = collectOutgoing (cgEdgeLabels cg)
+    syncAdj = collectSyncAdjacency (cgEdgeLabels cg)
+    syncReachable = syncReachableFrom (cgStart cg) syncAdj
 
     checkSource :: G.Vertex -> [SafetyError]
     checkSource source =
@@ -96,3 +98,26 @@ collectOutgoing =
   Map.foldlWithKey'
     (\acc (from, to) labels -> foldl' (\m lbl -> Map.insertWith (++) from [(to, lbl)] m) acc labels)
     Map.empty
+
+collectSyncAdjacency ::
+  Map.Map G.Edge [ContextEdgeLabel] ->
+  Map.Map G.Vertex [G.Vertex]
+collectSyncAdjacency =
+  Map.foldlWithKey' step Map.empty
+  where
+    step acc (from, to) labels
+      | any isSync labels = Map.insertWith (++) from [to] acc
+      | otherwise = acc
+    isSync ContextSyncEdge{} = True
+    isSync (ContextPayloadSyncEdge _ _ _) = True
+    isSync _ = False
+
+syncReachableFrom :: G.Vertex -> Map.Map G.Vertex [G.Vertex] -> Set.Set G.Vertex
+syncReachableFrom start adj = go Set.empty [start]
+  where
+    go seen [] = seen
+    go seen (v : vs)
+      | v `Set.member` seen = go seen vs
+      | otherwise =
+          let succs = Map.findWithDefault [] v adj
+           in go (Set.insert v seen) (succs ++ vs)

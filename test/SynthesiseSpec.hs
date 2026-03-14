@@ -27,30 +27,50 @@ spec =
           [("p", "q ! {l1: end, l2: end}"), ("q", "p ? {l1: end, l2: end}")]
           "p -> q {l1: end, l2: end}"
 
-      it "[SYNTH-004] recursive protocol roundtrips" $
+      it "[SYNTH-004] subtype receiver synthesises correctly" $
+        expectSynthGlobal
+          [("p", "q ! {l1: end, l2: end}"), ("q", "p ? {l1: end, l2: end, l3: end}")]
+          "p -> q {l1: end, l2: end}"
+      
+      -- It is not too hard to synthesise a global type from two parallel communicating pairs 
+      it "[SYNTH-005] synthesise parallel components properly" $
+        expectSynthGlobal
+          [("a", "b ! {l1: end, l2: end}"), ("b", "a ? {l1: end, l2: end, l3: end}"), 
+           ("c", "d ! {l1: end, l2: end}"), ("d", "c ? {l1: end, l2: end, l3: end}")]
+          "a -> b {l1: c -> d {l1: end, l2: end}, l2: c -> d {l1: end, l2: end}}"
+      
+      -- TODO: make tests agnostic to binder name 
+      -- A bit harder is the recursive case when we need interleaving 
+      it "[SYNTH-006] synthesises recursive parallel components properly" $
+        expectSynthGlobal
+          [("a", "rec t . b ! {l1: end, l2: t}"), ("b", "rec t . a ? {l1: end, l2: t, l3: end}"), 
+           ("c", "rec t . d ! {l1: end, l2: t}"), ("d", "rec t . c ? {l1: end, l2: t, l3: end}")]
+          "rec t2 . a -> b {l1: rec t3 . c -> d {l1: end, l2: t3}\n, l2: c -> d {l1: rec t1 . a -> b {l1: end, l2: t1}, l2: t2}}"
+
+      it "[SYNTH-007] recursive protocol satisfies roundtrip" $
         expectSynthRoundtrips
           [("p", "rec t . q ! {l: t}"), ("q", "rec t . p ? {l: t}")]
 
-      it "[SYNTH-005] 3-party protocol roundtrips" $
+      it "[SYNTH-008] 3-party protocol satisfies roundtrip" $
         expectSynthRoundtrips
           [("p", "q ! {l: end}"), ("q", "p ? {l: r ! {m: end}}"), ("r", "q ? {m: end}")]
 
-      it "[SYNTH-006] branch+recursion roundtrips" $
+      it "[SYNTH-009] branch+recursion satisfies roundtrip" $
         expectSynthRoundtrips
           [("p", "rec t . q ! {go: t, stop: end}"), ("q", "rec t . p ? {go: t, stop: end}")]
 
-    describe "Supertype property" $ do
-      it "[SYNTH-SUPER-001] end context satisfies supertype property" $
+    describe "Completeness property" $ do
+      it "[SYNTH-SUPER-001] end context satisfies the property" $
         expectSupertypeProperty
           [("p", "end"), ("q", "end")]
 
-      it "[SYNTH-SUPER-002] single message satisfies supertype property" $
+      it "[SYNTH-SUPER-002] single message satisfies the property" $
         expectSupertypeProperty
           [("p", "q ! {l: end}"), ("q", "p ? {l: end}")]
 
-      it "[SYNTH-SUPER-003] two-branch satisfies supertype property" $
+      it "[SYNTH-SUPER-003] subtype receiver satisfies property" $
         expectSupertypeProperty
-          [("p", "q ! {l1: end, l2: end}"), ("q", "p ? {l1: end, l2: end}")]
+          [("p", "q ! {l1: end, l2: end}"), ("q", "p ? {l1: end, l2: end, l3: end}")]
 
       it "[SYNTH-SUPER-004] recursive protocol satisfies supertype property" $
         expectSupertypeProperty

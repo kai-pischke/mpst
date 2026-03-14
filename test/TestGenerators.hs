@@ -1,6 +1,9 @@
 module TestGenerators
   ( genWellFormedGlobal
   , genWellFormedLocal
+  , genWellFormedProcess
+  , canonicalProcess
+  , defaultPayloadExpr
   , GeneratedContext(..)
   , participantPool
   , labelPool
@@ -27,6 +30,7 @@ data GeneratedContext = GeneratedContext
   , gcLocals :: [(Participant, LocalType)]
   , gcGraph :: ContextGraph
   }
+  deriving (Show)
 
 participantPool :: [Participant]
 participantPool = [Participant "p", Participant "q", Participant "r"]
@@ -48,6 +52,7 @@ genGlobal env size
   | otherwise =
       frequency
         [ (4, genMessage)
+        , (2, genPayload)
         , (1, genRec)
         , (1, genBaseGlobal env)
         ]
@@ -64,6 +69,13 @@ genGlobal env size
       let env' = Env.map (const True) env
       t <- genGlobal env' (sz - 1)
       pure (lbl, t)
+    genPayload = do
+      sender <- genParticipant
+      receiver <- suchThat genParticipant (/= sender)
+      pt <- elements [PTInt, PTBool, PTUnit]
+      let env' = Env.map (const True) env
+      cont <- genGlobal env' (size - 1)
+      pure $ GPayload sender receiver pt cont
     genRec = do
       let newVar = freshVar env
       body <- genGlobal (Env.insert newVar False env) (size - 1)
@@ -87,6 +99,7 @@ genLocal env size
   | otherwise =
       frequency
         [ (4, genSendRecv)
+        , (2, genPayloadLocal)
         , (1, genRec)
         , (1, genBaseLocal env)
         ]
@@ -103,6 +116,13 @@ genLocal env size
       let env' = Env.map (const True) env
       t <- genLocal env' (sz - 1)
       pure (lbl, t)
+    genPayloadLocal = do
+      isSend <- elements [True, False]
+      peer <- genParticipant
+      pt <- elements [PTInt, PTBool, PTUnit]
+      let env' = Env.map (const True) env
+      cont <- genLocal env' (size - 1)
+      pure $ if isSend then LPayloadSend peer pt cont else LPayloadRecv peer pt cont
     genRec = do
       let newVar = freshVar env
       body <- genLocal (Env.insert newVar False env) (size - 1)
@@ -138,6 +158,108 @@ freshVar env =
   where
     candidates = [TypeVar ("t" ++ show n) | n <- [(1 :: Int) ..]]
 
+-- Process generators
+
+genWellFormedProcess :: Gen Process
+genWellFormedProcess = sized $ \n -> genProc Env.empty (max 1 n)
+
+genProc :: Env.Map TypeVar Bool -> Int -> Gen Process
+genProc env size
+  | size <= 0 = genBaseProc env
+  | otherwise =
+      frequency
+        [ (3, genSend)
+        , (3, genRecv)
+        , (2, genSendPayload)
+        , (2, genRecvPayload)
+        , (2, genIf)
+        , (1, genRec)
+        , (1, genBaseProc env)
+        ]
+  where
+    genSend = do
+      peer <- elements participantPool
+      lbl <- elements labelPool
+      let env' = Env.map (const True) env
+      cont <- genProc env' (size - 1)
+      pure $ PSend peer lbl cont
+
+    genRecv = do
+      peer <- elements participantPool
+      branchCount <- chooseInt (1, 3)
+      let branchLabels = take branchCount labelPool
+      subSizes <- splitSizes size branchCount
+      branches <- mapM genBranch (zip branchLabels subSizes)
+      pure $ PRecv peer (NE.fromList branches)
+
+    genBranch (lbl, sz) = do
+      let env' = Env.map (const True) env
+      cont <- genProc env' (sz - 1)
+      pure (lbl, cont)
+
+    genSendPayload = do
+      peer <- elements participantPool
+      let env' = Env.map (const True) env
+      cont <- genProc env' (size - 1)
+      pure $ PSendPayload peer (EInt 42) cont
+
+    genRecvPayload = do
+      peer <- elements participantPool
+      let env' = Env.map (const True) env
+      cont <- genProc env' (size - 1)
+      pure $ PRecvPayload peer "x" cont
+
+    genIf = do
+      let halfSize = max 1 (size `div` 2)
+      thenP <- genProc env halfSize
+      elseP <- genProc env halfSize
+      pure $ PIf (EVar "b") thenP elseP
+
+    genRec = do
+      let newVar = freshVar env
+      body <- genProc (Env.insert newVar False env) (size - 1)
+      pure $ PRec newVar body
+
+genBaseProc :: Env.Map TypeVar Bool -> Gen Process
+genBaseProc env =
+  frequency $
+    [ (1, pure PEnd)
+    ]
+      ++ guardedVars
+  where
+    guardedVars =
+      case [v | (v, True) <- Env.toList env] of
+        [] -> []
+        vs -> [(2, PVar <$> elements vs)]
+
+-- | Build the canonical process for a local type.
+--
+-- - LSend: pick first label (minimal selection)
+-- - LRecv: handle all labels (maximal branching)
+-- - LRec/LVar/LEnd: structural correspondence
+canonicalProcess :: LocalType -> Process
+canonicalProcess = go
+  where
+    go LEnd = PEnd
+    go (LVar v) = PVar v
+    go (LRec v body) = PRec v (go body)
+    go (LSend p branches) =
+      let (lbl, cont) = NE.head branches
+      in PSend p lbl (go cont)
+    go (LRecv p branches) =
+      PRecv p (fmap (\(lbl, cont) -> (lbl, go cont)) branches)
+    go (LPayloadSend p pt cont) =
+      PSendPayload p (defaultPayloadExpr pt) (go cont)
+    go (LPayloadRecv p _pt cont) =
+      PRecvPayload p "x" (go cont)
+
+defaultPayloadExpr :: PayloadType -> Expr
+defaultPayloadExpr PTInt    = EInt 0
+defaultPayloadExpr PTBool   = EBool False
+defaultPayloadExpr PTUnit   = EUnit
+defaultPayloadExpr PTString = EUnit
+defaultPayloadExpr PTFloat  = EUnit
+
 -- Context graph generators
 
 genContext :: Gen GeneratedContext
@@ -164,6 +286,7 @@ genContextLocal self participants env depth
   | otherwise =
       frequency
         [ (4, genSendRecv)
+        , (2, genPayloadSendRecv)
         , (1, genRec)
         , (1, genContextBase env)
         ]
@@ -183,6 +306,17 @@ genContextLocal self participants env depth
       let env' = Env.map (const True) env
       cont <- genContextLocal self participants env' (depth - 1)
       pure (lbl, cont)
+
+    genPayloadSendRecv = do
+      dir <- elements [Send, Receive]
+      peer <- genPeer self participants
+      pt <- elements [PTInt, PTBool, PTUnit]
+      let env' = Env.map (const True) env
+      cont <- genContextLocal self participants env' (depth - 1)
+      pure $
+        case dir of
+          Send -> LPayloadSend peer pt cont
+          Receive -> LPayloadRecv peer pt cont
 
     genRec = do
       let v = freshVar env
@@ -212,6 +346,8 @@ labelsOfLocalType = go
   where
     go (LSend _ branches) = labelsInBranches branches
     go (LRecv _ branches) = labelsInBranches branches
+    go (LPayloadSend _ _ cont) = go cont
+    go (LPayloadRecv _ _ cont) = go cont
     go (LRec _ body) = go body
     go (LVar _) = []
     go LEnd = []

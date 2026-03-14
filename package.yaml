@@ -11,7 +11,9 @@ extra-source-files:
 dependencies:
   - base >= 4.14 && < 5
   - containers
+  - deepseq
   - megaparsec
+  - parser-combinators
   - prettyprinter
   - transformers
   - mtl
@@ -20,6 +22,7 @@ dependencies:
   - text
   - process
   - temporary
+  - time
 
 library:
   source-dirs: src
@@ -35,8 +38,17 @@ library:
     - Safety
     - Subtyping
     - Synthesise
+    - Typecheck
+    - Infer
     - Liveness
     - Visualise
+    - Benchmark.Catalogue
+    - Benchmark.Generators
+    - Benchmark.Size
+    - Benchmark.Runner
+    - Benchmark.LaTeX
+    - Benchmark.Types
+    - Benchmark.QBF
   other-modules:
     - Syntax.AST
     - Syntax.AlphaEq
@@ -55,6 +67,19 @@ executables:
     dependencies:
       - mpst
 
+  mpst-bench:
+    main: Main.hs
+    source-dirs: bench
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - mpst
+      - async
+      - process
+      - time
+
 tests:
   mpst-test:
     main: Spec.hs
@@ -68,10 +93,14 @@ tests:
       - LessIsMoreSpec
       - MergeSpec
       - MpstkBackendSpec
+      - ProcessSpec
+      - QBFSpec
       - ProjectionSpec
       - SafetySpec
       - SubtypingSpec
       - SynthesiseSpec
+      - TypecheckSpec
+      - InferSpec
       - LivenessSpec
       - RoundtripSpec
       - TestGenerators

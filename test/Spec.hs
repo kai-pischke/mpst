@@ -14,7 +14,11 @@ import qualified RoundtripSpec
 import qualified SafetySpec
 import qualified SubtypingSpec
 import qualified SynthesiseSpec
+import qualified TypecheckSpec
+import qualified InferSpec
 import Test.Hspec (hspec)
+import qualified ProcessSpec
+import qualified QBFSpec
 import qualified WellFormedSpec
 
 main :: IO ()
@@ -34,4 +38,8 @@ main =
     SafetySpec.spec
     LivenessSpec.spec
     SubtypingSpec.spec
+    ProcessSpec.spec
     SynthesiseSpec.spec
+    TypecheckSpec.spec
+    InferSpec.spec
+    QBFSpec.spec

@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 -- | Balancedness checking for global graphs.
 module Balanced
   ( BalancedError(..)
@@ -9,7 +11,9 @@ import Automata
   ( GlobalEdgeLabel(..)
   , GlobalGraph(..)
   )
+import Control.DeepSeq (NFData)
 import Data.Foldable (foldl')
+import GHC.Generics (Generic)
 import qualified Data.Graph as G
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -23,7 +27,9 @@ data BalancedError = UnbalancedVertex
   , beMustParticipants :: ParticipantSet
   , beMayParticipants :: ParticipantSet
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData BalancedError
 
 -- | Result of balancedness checking.
 type BalancedResult = Either [BalancedError] ()

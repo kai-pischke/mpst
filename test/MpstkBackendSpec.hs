@@ -3,7 +3,7 @@ module MpstkBackendSpec (spec) where
 import qualified Data.Map.Strict as Map
 import Syntax (LocalType(..), Participant(..), TypeVar(..), parseLocalTypeChecked)
 import Test.Hspec (Spec, describe, it, shouldBe, expectationFailure)
-import MpstkBackend (toMpstkLocalType, toMpstkCtx, MpstkResults(..), mpstkVerify)
+import MpstkBackend (MpstkResults(..), mpstkVerify, toMpstkCtx, toMpstkLocalType)
 
 spec :: Spec
 spec =
@@ -55,22 +55,22 @@ spec =
       it "reports safe + deadlock-free + live for matched send/receive loop" $
         expectMpstkResults
           [("p", "rec t . q ! {a: t}"), ("q", "rec t . p ? {a: t}")]
-          MpstkResults { mpstkSafe = True, mpstkDeadlockFree = True, mpstkLive = True }
+          MpstkResults { mpstkSafe = True, mpstkDeadlockFree = True, mpstkLivePlus = True }
 
       it "reports unsafe for mismatched labels" $
         expectMpstkResults
           [("p", "q ! {l1: end, l2: end}"), ("q", "p ? {l1: end, l3: end}")]
-          MpstkResults { mpstkSafe = False, mpstkDeadlockFree = True, mpstkLive = False }
+          MpstkResults { mpstkSafe = False, mpstkDeadlockFree = True, mpstkLivePlus = False }
 
       it "reports safe but not deadlock-free for one-sided termination" $
         expectMpstkResults
           [("p", "q ! {l1: q ! {l2: end}}"), ("q", "p ? {l1: end}")]
-          MpstkResults { mpstkSafe = True, mpstkDeadlockFree = False, mpstkLive = False }
+          MpstkResults { mpstkSafe = True, mpstkDeadlockFree = False, mpstkLivePlus = False }
 
       it "reports safe + deadlock-free + live for simple terminating protocol" $
         expectMpstkResults
           [("p", "q ! {ok: end}"), ("q", "p ? {ok: end}")]
-          MpstkResults { mpstkSafe = True, mpstkDeadlockFree = True, mpstkLive = True }
+          MpstkResults { mpstkSafe = True, mpstkDeadlockFree = True, mpstkLivePlus = True }
 
 expectMpstkResults :: [(String, String)] -> MpstkResults -> IO ()
 expectMpstkResults pairs expected = do
@@ -78,8 +78,10 @@ expectMpstkResults pairs expected = do
   case parsed of
     Left err -> expectationFailure ("parse error: " ++ err)
     Right entries -> do
-      results <- mpstkVerify (Map.fromList entries)
-      results `shouldBe` expected
+      resultE <- mpstkVerify (Map.fromList entries)
+      case resultE of
+        Left err -> expectationFailure ("mpstk failed: " ++ err)
+        Right results -> results `shouldBe` expected
   where
     parsePair (name, src) =
       case parseLocalTypeChecked src of

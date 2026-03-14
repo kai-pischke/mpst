@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 -- | Subtyping checks for local graphs.
 --
 -- The check computes the greatest simulation relation by fixpoint pruning.
@@ -5,6 +7,9 @@ module Subtyping
   ( SubtypingError(..)
   , SubtypingResult
   , checkLocalSubtype
+  , ContextSubtypingError(..)
+  , ContextSubtypingResult
+  , checkContextSubtype
   ) where
 
 import Automata
@@ -12,22 +17,28 @@ import Automata
   , LocalEdgeLabel(..)
   , LocalGraph(..)
   , LocalNode(..)
+  , LocalPayloadEdgeLabel(..)
   )
+import Control.DeepSeq (NFData)
 import Data.Array (assocs)
 import Data.Foldable (foldl')
+import GHC.Generics (Generic)
 import qualified Data.Graph as G
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Syntax.AST (Label, Participant)
+import Syntax.AST (Label, Participant, PayloadType)
 
 type StatePair = (G.Vertex, G.Vertex)
 type Simulation = Set.Set StatePair
+
+data TransitionContent = TCLabel Label | TCPayload PayloadType
+  deriving (Eq, Ord, Show)
 
 data LocalTransition = LocalTransition
   { ltTo :: !G.Vertex
   , ltDirection :: LocalDirection
   , ltPeer :: Participant
-  , ltLabel :: Label
+  , ltContent :: TransitionContent
   }
   deriving (Eq, Ord, Show)
 
@@ -37,10 +48,29 @@ data SubtypingError
       { stLeftStart :: !G.Vertex
       , stRightStart :: !G.Vertex
       }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData SubtypingError
 
 -- | Result of local subtyping.
 type SubtypingResult = Either [SubtypingError] ()
+
+-- | Errors reported by context subtyping.
+data ContextSubtypingError
+  = ContextParticipantSetMismatch
+      { cstLeftParticipants :: !(Set.Set Participant)
+      , cstRightParticipants :: !(Set.Set Participant)
+      }
+  | ContextParticipantNotSubtype
+      { cstParticipant :: !Participant
+      , cstLocalErrors :: ![SubtypingError]
+      }
+  deriving (Eq, Show, Generic)
+
+instance NFData ContextSubtypingError
+
+-- | Result of context subtyping.
+type ContextSubtypingResult = Either [ContextSubtypingError] ()
 
 -- | Check whether the left local graph is a subtype of the right local graph.
 --
@@ -56,10 +86,39 @@ checkLocalSubtype left right =
   where
     leftNodes = Map.fromList (assocs (lgNodes left))
     rightNodes = Map.fromList (assocs (lgNodes right))
-    leftOutgoing = collectOutgoing (lgEdgeLabels left)
-    rightOutgoing = collectOutgoing (lgEdgeLabels right)
+    leftOutgoing = collectOutgoing (lgEdgeLabels left) (lgPayloadEdges left)
+    rightOutgoing = collectOutgoing (lgEdgeLabels right) (lgPayloadEdges right)
     initial = initialSimulation leftNodes rightNodes
     fixed = pruneToFixpoint leftNodes rightNodes leftOutgoing rightOutgoing initial
+
+-- | Check whether the left context is a subtype of the right context.
+--
+-- Context subtyping is pointwise over participants:
+-- each participant must exist in both contexts and satisfy local subtyping.
+checkContextSubtype ::
+  Map.Map Participant LocalGraph ->
+  Map.Map Participant LocalGraph ->
+  ContextSubtypingResult
+checkContextSubtype left right
+  | leftParticipants /= rightParticipants =
+      Left [ContextParticipantSetMismatch leftParticipants rightParticipants]
+  | null errors = Right ()
+  | otherwise = Left errors
+  where
+    leftParticipants = Map.keysSet left
+    rightParticipants = Map.keysSet right
+    errors =
+      concatMap checkOne (Map.toList left)
+
+    checkOne (participant, leftGraph) =
+      case Map.lookup participant right of
+        Nothing ->
+          [ContextParticipantSetMismatch leftParticipants rightParticipants]
+        Just rightGraph ->
+          case checkLocalSubtype leftGraph rightGraph of
+            Right () -> []
+            Left localErrors ->
+              [ContextParticipantNotSubtype participant localErrors]
 
 initialSimulation ::
   Map.Map G.Vertex LocalNode ->
@@ -79,6 +138,8 @@ compatibleNodeKinds leftNode rightNode =
     (LocalEndNode, LocalEndNode) -> True
     (LocalSendNode p _, LocalSendNode q _) -> p == q
     (LocalRecvNode p _, LocalRecvNode q _) -> p == q
+    (LocalPayloadSendNode p pt, LocalPayloadSendNode q qt) -> p == q && pt == qt
+    (LocalPayloadRecvNode p pt, LocalPayloadRecvNode q qt) -> p == q && pt == qt
     _ -> False
 
 pruneToFixpoint ::
@@ -112,9 +173,15 @@ violatesSimulation leftNodes rightNodes leftOutgoing rightOutgoing sim (leftV, r
     (Just LocalEndNode, Just LocalEndNode) ->
       False
     (Just (LocalSendNode _ _), Just (LocalSendNode _ _)) ->
-      not (allRequiredSimulated leftSends rightSends)
+      -- Covariant: every left send must be matched by a right send.
+      not (allLeftMatchedByRight leftSends rightSends)
     (Just (LocalRecvNode _ _), Just (LocalRecvNode _ _)) ->
-      not (allRequiredSimulated rightRecvs leftRecvs)
+      -- Contravariant: every right recv must be matched by a left recv.
+      not (allRightMatchedByLeft rightRecvs leftRecvs)
+    (Just (LocalPayloadSendNode _ _), Just (LocalPayloadSendNode _ _)) ->
+      not (allLeftMatchedByRight leftSends rightSends)
+    (Just (LocalPayloadRecvNode _ _), Just (LocalPayloadRecvNode _ _)) ->
+      not (allRightMatchedByLeft rightRecvs leftRecvs)
     _ ->
       True
   where
@@ -125,37 +192,46 @@ violatesSimulation leftNodes rightNodes leftOutgoing rightOutgoing sim (leftV, r
     leftRecvs = filter (\t -> ltDirection t == Receive) leftOutgoingAt
     rightRecvs = filter (\t -> ltDirection t == Receive) rightOutgoingAt
 
-    allRequiredSimulated required available =
-      all (hasMatchingSuccessor available) required
+    -- | For each left transition, find a right transition with the same
+    --   action and (leftTarget, rightTarget) in sim.
+    allLeftMatchedByRight lefts rights =
+      all
+        (\l -> any (\r -> sameAction l r && (ltTo l, ltTo r) `Set.member` sim) rights)
+        lefts
 
-    hasMatchingSuccessor available required =
-      any
-        (\candidate -> sameAction required candidate && (ltTo required, ltTo candidate) `Set.member` sim)
-        available
+    -- | For each right transition, find a left transition with the same
+    --   action and (leftTarget, rightTarget) in sim.
+    allRightMatchedByLeft rights lefts =
+      all
+        (\r -> any (\l -> sameAction r l && (ltTo l, ltTo r) `Set.member` sim) lefts)
+        rights
 
 sameAction :: LocalTransition -> LocalTransition -> Bool
 sameAction lhs rhs =
   ltDirection lhs == ltDirection rhs
     && ltPeer lhs == ltPeer rhs
-    && ltLabel lhs == ltLabel rhs
+    && ltContent lhs == ltContent rhs
 
 collectOutgoing ::
   Map.Map G.Edge [LocalEdgeLabel] ->
+  Map.Map G.Edge [LocalPayloadEdgeLabel] ->
   Map.Map G.Vertex [LocalTransition]
-collectOutgoing =
-  Map.foldlWithKey'
-    (\acc (from, to) labels -> foldl' (addTransition from to) acc labels)
-    Map.empty
+collectOutgoing branchEdges payloadEdges =
+  let fromBranch = Map.foldlWithKey'
+        (\acc (from, to) labels -> foldl' (addBranch from to) acc labels)
+        Map.empty
+        branchEdges
+      fromPayload = Map.foldlWithKey'
+        (\acc (from, to) labels -> foldl' (addPayload from to) acc labels)
+        fromBranch
+        payloadEdges
+   in fromPayload
   where
-    addTransition from to acc label =
-      Map.insertWith
-        (++)
-        from
-        [ LocalTransition
-            { ltTo = to
-            , ltDirection = leDirection label
-            , ltPeer = lePeer label
-            , ltLabel = leLabel label
-            }
-        ]
+    addBranch from to acc label =
+      Map.insertWith (++) from
+        [LocalTransition to (leDirection label) (lePeer label) (TCLabel (leLabel label))]
+        acc
+    addPayload from to acc label =
+      Map.insertWith (++) from
+        [LocalTransition to (lpeDirection label) (lpePeer label) (TCPayload (lpePayload label))]
         acc

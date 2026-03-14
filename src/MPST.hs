@@ -11,11 +11,14 @@ module MPST
   , module Visualise
   , module MpstkBackend
   , module Synthesise
+  , module Typecheck
+  , module Infer
   ) where
 
 import Automata
 import Balanced
 import DeadlockFreedom
+import Infer
 import Liveness
 import MpstkBackend
 import Project
@@ -23,4 +26,5 @@ import Safety
 import Subtyping
 import Synthesise
 import Syntax
+import Typecheck
 import Visualise

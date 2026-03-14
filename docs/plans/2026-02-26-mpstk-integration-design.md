@@ -9,7 +9,7 @@ Add an optional mpstk backend for verifying session type properties (safety, dea
 - **Translation source:** `Map Participant LocalType` pairs. When starting from a `ContextGraph`, reconstruct local types via `localGraphToType` first.
 - **Payloads:** Omitted (mpstk defaults to unit).
 - **Session name:** Fixed `s` for all participants.
-- **Properties:** safety, deadlock-freedom (df), and liveness (live+ in mpstk, which corresponds to our "live").
+- **Properties:** safety, deadlock-freedom (df), and live+ from mpstk.  Note: mpstk's live+ is strictly stronger than our native `checkLiveness` — it checks per-message-label liveness, which in practice requires safety as well.
 - **Return type:** `Bool` per property.
 - **Approach:** Single mpstk invocation returns all results; per-property functions project from the result.
 
@@ -31,14 +31,14 @@ Context format: `s[participant]: translatedLocalType, ...`
 data MpstkResults = MpstkResults
   { mpstkSafe :: Bool
   , mpstkDeadlockFree :: Bool
-  , mpstkLive :: Bool
+  , mpstkLivePlus :: Bool
   }
 
 toMpstkCtx :: Map Participant LocalType -> String
 mpstkVerify :: Map Participant LocalType -> IO MpstkResults
 mpstkCheckSafety :: Map Participant LocalType -> IO Bool
 mpstkCheckDeadlockFreedom :: Map Participant LocalType -> IO Bool
-mpstkCheckLiveness :: Map Participant LocalType -> IO Bool
+mpstkCheckLivePlus :: Map Participant LocalType -> IO Bool
 ```
 
 ## Flow

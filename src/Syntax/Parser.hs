@@ -3,12 +3,16 @@ module Syntax.Parser
   ( Parser
   , parseGlobalType
   , parseLocalType
+  , parseProcess
   , globalTypeParser
   , localTypeParser
+  , processParser
+  , exprParser
   ) where
 
 import Control.Applicative (empty, many, (<|>))
 import Control.Monad (when)
+import Control.Monad.Combinators.Expr (Operator(..), makeExprParser)
 import qualified Data.List.NonEmpty as NE
 import Data.Void (Void)
 import Syntax.AST
@@ -38,18 +42,31 @@ parseGlobalType = MP.parse (sc *> globalTypeParser <* eof) "global type"
 parseLocalType :: String -> Either (ParseErrorBundle String Void) LocalType
 parseLocalType = MP.parse (sc *> localTypeParser <* eof) "local type"
 
+-- | Parse a full process expression.
+parseProcess :: String -> Either (ParseErrorBundle String Void) Process
+parseProcess = MP.parse (sc *> processParser <* eof) "process"
+
 -- | Parser for /global/ type terms.
 globalTypeParser :: Parser GlobalType
 globalTypeParser =
   label "global type" . choice $
     [ gRec
     , GEnd <$ keyword "end"
+    , try gPayload
     , try gMessage
     , GVar <$> typeVarP
     , parens globalTypeParser
     ]
   where
     gRec = GRec <$> (keyword "rec" *> typeVarP) <*> (symbol "." *> globalTypeParser)
+    gPayload = do
+      sender <- participantP
+      _ <- symbol "->"
+      receiver <- participantP
+      pt <- between (symbol "[") (symbol "]") payloadTypeP
+      _ <- symbol ";"
+      cont <- globalTypeParser
+      pure (GPayload sender receiver pt cont)
     gMessage = do
       sender <- participantP
       _ <- symbol "->"
@@ -63,6 +80,8 @@ localTypeParser =
   label "local type" . choice $
     [ lRec
     , LEnd <$ keyword "end"
+    , try lPayloadSend
+    , try lPayloadRecv
     , try send
     , try recv
     , LVar <$> typeVarP
@@ -70,8 +89,91 @@ localTypeParser =
     ]
   where
     lRec = LRec <$> (keyword "rec" *> typeVarP) <*> (symbol "." *> localTypeParser)
+    lPayloadSend = do
+      peer <- participantP
+      _ <- symbol "!"
+      pt <- between (symbol "[") (symbol "]") payloadTypeP
+      _ <- symbol ";"
+      cont <- localTypeParser
+      pure (LPayloadSend peer pt cont)
+    lPayloadRecv = do
+      peer <- participantP
+      _ <- symbol "?"
+      pt <- between (symbol "[") (symbol "]") payloadTypeP
+      _ <- symbol ";"
+      cont <- localTypeParser
+      pure (LPayloadRecv peer pt cont)
     send = LSend <$> participantP <*> (symbol "!" *> branchBlock localTypeParser)
     recv = LRecv <$> participantP <*> (symbol "?" *> branchBlock localTypeParser)
+
+-- | Parser for /process/ terms.
+processParser :: Parser Process
+processParser =
+  label "process" . choice $
+    [ pRec
+    , pIf
+    , try pSendPayload
+    , try pRecvPayload
+    , try pSend
+    , try pRecv
+    , pEnd
+    , pVar
+    , parens processParser
+    ]
+  where
+    pRec  = PRec <$ keyword "rec" <*> typeVarP <* symbol "." <*> processParser
+    pIf   = PIf <$ keyword "if" <*> exprParser <* keyword "then" <*> processParser <* keyword "else" <*> processParser
+    pSendPayload = do
+      peer <- participantP
+      _ <- symbol "!"
+      e <- between (symbol "[") (symbol "]") exprParser
+      _ <- symbol "."
+      cont <- processParser
+      pure (PSendPayload peer e cont)
+    pRecvPayload = do
+      peer <- participantP
+      _ <- symbol "?"
+      _ <- symbol "("
+      var <- identifier
+      _ <- symbol ")"
+      _ <- symbol "."
+      cont <- processParser
+      pure (PRecvPayload peer var cont)
+    pSend = PSend <$> participantP <* symbol "!" <*> labelP <* symbol "." <*> processParser
+    pRecv = PRecv <$> participantP <* symbol "?" <*> branchBlock processParser
+    pEnd  = PEnd <$ symbol "0"
+    pVar  = PVar <$> typeVarP
+
+-- | Parser for expressions in process terms.
+exprParser :: Parser Expr
+exprParser = makeExprParser exprAtom operatorTable
+  where
+    exprAtom :: Parser Expr
+    exprAtom = choice
+      [ EBool True <$ keyword "true"
+      , EBool False <$ keyword "false"
+      , EInt <$> lexeme L.decimal
+      , try (EUnit <$ symbol "(" <* symbol ")")
+      , EVar <$> identifier
+      , parens exprParser
+      ]
+
+    operatorTable :: [[Operator Parser Expr]]
+    operatorTable =
+      [ [ Prefix (ENot <$ keyword "not") ]
+      , [ InfixL (EBinOp Mul <$ symbol "*") ]
+      , [ InfixL (EBinOp Add <$ symbol "+")
+        , InfixL (EBinOp Sub <$ symbol "-")
+        ]
+      , [ InfixN (EBinOp Lt <$ symbol "<")
+        , InfixN (EBinOp Gt <$ symbol ">")
+        ]
+      , [ InfixN (EBinOp Eq <$ symbol "==")
+        , InfixN (EBinOp Neq <$ symbol "!=")
+        ]
+      , [ InfixL (EBinOp And <$ symbol "&&") ]
+      , [ InfixL (EBinOp Or <$ symbol "||") ]
+      ]
 
 branchBlock :: Parser a -> Parser (Branches a)
 branchBlock parser =
@@ -92,6 +194,15 @@ labelP = Label <$> identifier
 
 typeVarP :: Parser TypeVar
 typeVarP = TypeVar <$> identifier
+
+payloadTypeP :: Parser PayloadType
+payloadTypeP = choice
+  [ PTInt    <$ keyword "int"
+  , PTBool   <$ keyword "bool"
+  , PTUnit   <$ keyword "unit"
+  , PTString <$ keyword "string"
+  , PTFloat  <$ keyword "float"
+  ]
 
 parens :: Parser a -> Parser a
 parens = between (symbol "(") (symbol ")")
@@ -119,4 +230,4 @@ sc :: Parser ()
 sc = L.space space1 empty empty
 
 keywords :: [String]
-keywords = ["rec", "end"]
+keywords = ["rec", "end", "if", "then", "else", "true", "false", "not", "int", "bool", "unit"]

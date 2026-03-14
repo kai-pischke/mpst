@@ -27,8 +27,18 @@ library
       Project
       Safety
       Subtyping
+      Synthesise
+      Typecheck
+      Infer
       Liveness
       Visualise
+      Benchmark.Catalogue
+      Benchmark.Generators
+      Benchmark.Size
+      Benchmark.Runner
+      Benchmark.LaTeX
+      Benchmark.Types
+      Benchmark.QBF
   other-modules:
       Syntax.AST
       Syntax.AlphaEq
@@ -41,13 +51,16 @@ library
       array
     , base >=4.14 && <5
     , containers
+    , deepseq
     , graphviz
     , megaparsec
     , mtl
+    , parser-combinators
     , prettyprinter
     , process
     , temporary
     , text
+    , time
     , transformers
   default-language: Haskell2010
 
@@ -64,14 +77,45 @@ executable mpst-app
       array
     , base >=4.14 && <5
     , containers
+    , deepseq
     , graphviz
     , megaparsec
     , mpst
     , mtl
+    , parser-combinators
     , prettyprinter
     , process
     , temporary
     , text
+    , time
+    , transformers
+  default-language: Haskell2010
+
+executable mpst-bench
+  main-is: Main.hs
+  other-modules:
+      Paths_mpst
+  autogen-modules:
+      Paths_mpst
+  hs-source-dirs:
+      bench
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      array
+    , async
+    , base >=4.14 && <5
+    , containers
+    , deepseq
+    , graphviz
+    , megaparsec
+    , mpst
+    , mtl
+    , parser-combinators
+    , prettyprinter
+    , process
+    , temporary
+    , text
+    , time
     , transformers
   default-language: Haskell2010
 
@@ -87,9 +131,14 @@ test-suite mpst-test
       LessIsMoreSpec
       MergeSpec
       MpstkBackendSpec
+      ProcessSpec
+      QBFSpec
       ProjectionSpec
       SafetySpec
       SubtypingSpec
+      SynthesiseSpec
+      TypecheckSpec
+      InferSpec
       LivenessSpec
       RoundtripSpec
       TestGenerators
@@ -102,14 +151,17 @@ test-suite mpst-test
     , array
     , base >=4.14 && <5
     , containers
+    , deepseq
     , graphviz
     , hspec
     , megaparsec
     , mpst
     , mtl
+    , parser-combinators
     , prettyprinter
     , process
     , temporary
     , text
+    , time
     , transformers
   default-language: Haskell2010
