@@ -30,6 +30,7 @@ udomYoshida2025 = Citation "thien-nobuko-popl-25" "Udomsrirungruang \\& Yoshida,
 mkMapReduce :: Int -> LocalExample
 mkMapReduce n = LocalExample
   { leName = "G_mr-" ++ show (n + 2)
+  , leDisplayName = "MapReduce(" ++ show (n + 2) ++ ")"
   , leCitation = Just scalasYoshida2019 { citeRef = Just "Ex.~3" }
   , leParticipants = [masterType] ++ workerTypes ++ [reducerType]
   }
@@ -54,6 +55,7 @@ mkMapReduce n = LocalExample
 mkMapReduceGlobal :: Int -> GlobalExample
 mkMapReduceGlobal n = GlobalExample
   { geName = "G_mr-" ++ show (n + 2)
+  , geDisplayName = "MapReduce(" ++ show (n + 2) ++ ")"
   , geCitation = Just scalasYoshida2019 { citeRef = Just "Ex.~3" }
   , geGlobalSource = globalSrc
   , geParticipantNames = ["m"] ++ workers ++ ["r"]
@@ -84,6 +86,7 @@ mkMapReduceGlobal n = GlobalExample
 mkIndependentWorkersGlobal :: Int -> GlobalExample
 mkIndependentWorkersGlobal n = GlobalExample
   { geName = "G_iw-" ++ show (3 * n + 1)
+  , geDisplayName = "Independent Workers(" ++ show (3 * n + 1) ++ ")"
   , geCitation = Just scalasYoshida2019 { citeRef = Just "Ex.~4" }
   , geGlobalSource = globalSrc
   , geParticipantNames = ["s"] ++ concatMap (\i -> [wa i, wb i, wc i]) [1..n]
@@ -94,37 +97,68 @@ mkIndependentWorkersGlobal n = GlobalExample
     wc i = "wc" ++ show i
 
     globalSrc =
-      concatMap (\i -> "s -> " ++ wa i ++ " [int]; ") [1..n]
-        ++ "rec t . " ++ workerChain 1
+      foldr (\i rest -> "s -> " ++ wa i ++ " { datum: s -> " ++ wa i ++ " [int]; " ++ rest ++ " }")
+        (interleaveChains [1..n])
+        [1..n]
 
-    -- Each worker: wa->wb { datum: wa->wb[int]; wb->wc { datum: wb->wc[int]; wc->wa { result: wc->wa[int]; NEXT } }, stop: wb->wc { stop: NEXT } }
-    workerChain i
-      | i == n    = lastWorker i
-      | otherwise =
-          wa i ++ " -> " ++ wb i ++ " { "
-            ++ "datum: " ++ wa i ++ " -> " ++ wb i ++ " [int]; "
-            ++ wb i ++ " -> " ++ wc i ++ " { "
-              ++ "datum: " ++ wb i ++ " -> " ++ wc i ++ " [int]; "
-              ++ wc i ++ " -> " ++ wa i ++ " { result: " ++ wc i ++ " -> " ++ wa i ++ " [int]; "
-              ++ workerChain (i + 1)
-              ++ " } }, "
-            ++ "stop: " ++ wb i ++ " -> " ++ wc i ++ " { stop: " ++ workerChain (i + 1) ++ " } "
-          ++ "}"
+    -- Interleave independent worker chains so that all participants are
+    -- involved in every branch (no closure mixes end with involved).
+    -- The structure nests datum/stop choices for all chains first, then
+    -- does the work round for chains that chose datum.  When a chain
+    -- stops, committed chains finish their pending round before a fresh
+    -- recursive sub-protocol begins for the remaining chains.
+    interleaveChains [] = "end"
+    interleaveChains chains =
+      let tag = concatMap show chains
+          loopVar = "t" ++ tag
+       in "rec " ++ loopVar ++ " . " ++ nestChoices chains [] loopVar
 
-    lastWorker i =
+    -- Nest datum/stop choices.
+    --   undecided : chains whose wa->wb choice hasn't been emitted yet
+    --   committed : chains that already chose datum in this round
+    --   loopVar   : rec variable for the current set of chains
+    nestChoices [] committed loopVar = doWork committed loopVar
+    nestChoices (i:rest) committed loopVar =
       wa i ++ " -> " ++ wb i ++ " { "
-        ++ "datum: " ++ wa i ++ " -> " ++ wb i ++ " [int]; "
-        ++ wb i ++ " -> " ++ wc i ++ " { "
-          ++ "datum: " ++ wb i ++ " -> " ++ wc i ++ " [int]; "
-          ++ wc i ++ " -> " ++ wa i ++ " { result: " ++ wc i ++ " -> " ++ wa i ++ " [int]; t"
-          ++ " } }, "
-        ++ "stop: " ++ wb i ++ " -> " ++ wc i ++ " { stop: end }"
-      ++ " }"
+        ++ "datum: " ++ nestChoices rest (committed ++ [i]) loopVar ++ ", "
+        ++ "stop: " ++ wb i ++ " -> " ++ wc i ++ " { stop: "
+          ++ afterStop committed rest ++ " } "
+        ++ "}"
+
+    -- After a chain stops: finish the pending round for committed chains,
+    -- then start a fresh recursive sub-protocol for all remaining chains.
+    afterStop committed rest =
+      let remaining = committed ++ rest
+       in case remaining of
+            [] -> "end"
+            _  -> pendingWork committed (interleaveChains remaining)
+
+    -- Emit one round of work (payload + wb->wc forward + payloads back)
+    -- for committed chains, threading the continuation inside the braces.
+    pendingWork [] cont = cont
+    pendingWork (i:rest) cont =
+      wa i ++ " -> " ++ wb i ++ " [int]; "
+        ++ wb i ++ " -> " ++ wc i ++ " { datum: "
+        ++ wb i ++ " -> " ++ wc i ++ " [int]; "
+        ++ wc i ++ " -> " ++ wa i ++ " [int]; "
+        ++ pendingWork rest cont
+        ++ " }"
+
+    -- One round of work for all active chains that chose datum.
+    doWork [] loopVar = loopVar
+    doWork (i:rest) loopVar =
+      wa i ++ " -> " ++ wb i ++ " [int]; "
+        ++ wb i ++ " -> " ++ wc i ++ " { datum: "
+        ++ wb i ++ " -> " ++ wc i ++ " [int]; "
+        ++ wc i ++ " -> " ++ wa i ++ " [int]; "
+        ++ doWork rest loopVar
+        ++ " }"
 
 -- | Generate Independent Workers local example with n worker triples.
 mkIndependentWorkers :: Int -> LocalExample
 mkIndependentWorkers n = LocalExample
   { leName = "G_iw-" ++ show (3 * n + 1)
+  , leDisplayName = "Independent Workers(" ++ show (3 * n + 1) ++ ")"
   , leCitation = Just scalasYoshida2019 { citeRef = Just "Ex.~4" }
   , leParticipants = [sType] ++ concatMap workerTriple [1..n]
   }
@@ -226,6 +260,7 @@ mkCcfGlobal size =
   let parts = mkCcfParts size
   in GlobalExample
     { geName = "G_cf-" ++ show size
+    , geDisplayName = "Coinductive Full(" ++ show size ++ ")"
     , geCitation = Just udomYoshida2025 { citeRef = Just "Thm.~4.24" }
     , geGlobalSource = ccfGlobalType parts
     , geParticipantNames = ["p", "q", "r"]
@@ -238,6 +273,7 @@ mkCcfLocal size =
       qType = fullQType (ccfLabels parts) (ccfPrimes parts)
   in LocalExample
     { leName = "G_cf-" ++ show size
+    , leDisplayName = "Coinductive Full(" ++ show size ++ ")"
     , leCitation = Just udomYoshida2025 { citeRef = Just "Thm.~4.24" }
     , leParticipants = [("p", ccfPType parts), ("q", qType), ("r", ccfRType parts)]
     }
@@ -249,6 +285,7 @@ mkCcfSimple size =
       qType = simpleQType (ccfLabels parts)
   in LocalExample
     { leName = "G_cfs-" ++ show size
+    , leDisplayName = "Coinductive Full Optimised(" ++ show size ++ ")"
     , leCitation = Just udomYoshida2025 { citeRef = Just "Thm.~4.24" }
     , leParticipants = [("p", ccfPType parts), ("q", qType), ("r", ccfRType parts)]
     }
@@ -265,6 +302,7 @@ consecutivePrimes = [2, 3, 5, 7, 11, 13]
 mkBinCounter :: Int -> LocalExample
 mkBinCounter n = LocalExample
   { leName = "BinCtr-" ++ show n
+  , leDisplayName = "Binary Counter(" ++ show n ++ ")"
   , leCitation = Nothing
   , leParticipants = [srcType] ++ bitTypes ++ [ovfType]
   }

@@ -16,8 +16,11 @@ module Benchmark.QBF
   , qbfGame
   ) where
 
-import Benchmark.Types (LocalExample(..))
+import Benchmark.Types (Citation(..), LocalExample(..))
 import Data.List (intercalate)
+
+udomYoshida2025 :: Citation
+udomYoshida2025 = Citation "thien-nobuko-popl-25" "Udomsrirungruang \\& Yoshida, 2025" Nothing
 
 -- | Variable (1-based index).
 newtype Var = Var Int deriving (Eq, Ord, Show)
@@ -222,7 +225,8 @@ mkQBFWithBad tBad (QBF quantifiers clauses) =
 
   in LocalExample
     { leName = "QBF-" ++ show n ++ "v" ++ show m ++ "c"
-    , leCitation = Nothing
+    , leDisplayName = "QBF(" ++ show n ++ "v" ++ show m ++ "c)"
+    , leCitation = Just udomYoshida2025
     , leParticipants = [sType] ++ pTypes ++ rTypes ++ [rEndType]
     }
 

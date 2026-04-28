@@ -2,9 +2,7 @@
 module Merge
   ( Merge
   , iso
-  , bisim
   , plainMerge
-  , bisimMerge
   , fullMerge
   ) where
 
@@ -18,7 +16,6 @@ import Automata
   )
 import Control.Applicative ((<|>))
 import Control.Monad (guard)
-import Data.Maybe (isJust)
 import Control.Monad.State.Strict (StateT(..), gets, modify, runStateT)
 import Data.Array (array, assocs)
 import Data.Foldable (foldl')
@@ -34,14 +31,6 @@ type Merge = LocalGraph -> LocalGraph -> Maybe LocalGraph
 plainMerge :: Merge
 plainMerge left right =
   if iso left right
-    then Just left
-    else Nothing
-
--- | Plain coinductive merge: succeeds iff graphs are rooted-bisimilar;
--- returns the left graph.
-bisimMerge :: Merge
-bisimMerge left right =
-  if bisim left right
     then Just left
     else Nothing
 
@@ -121,99 +110,6 @@ iso left right = go Map.empty Map.empty [(lgStart left, lgStart right)]
                                    in go fwd' bwd' (next ++ pending)
                             _ -> False
             _ -> False
-        _ -> False
-
--- | Rooted bisimulation over local graphs.
---
--- Two graphs are bisimilar when there exists a relation containing their
--- start states such that related states have compatible node kinds and can
--- mutually match all labelled transitions.
-bisim :: LocalGraph -> LocalGraph -> Bool
-bisim left right =
-  case (outgoingByLabelMap (lgEdgeLabels left), outgoingByLabelMap (lgEdgeLabels right)) of
-    (Just leftOut, Just rightOut) ->
-      Set.member (lgStart left, lgStart right) relationFix
-      where
-        leftNodes = Map.fromList (assocs (lgNodes left))
-        rightNodes = Map.fromList (assocs (lgNodes right))
-        leftPayloadOut = payloadOutgoingBySource (lgPayloadEdges left)
-        rightPayloadOut = payloadOutgoingBySource (lgPayloadEdges right)
-        leftVertices = fmap fst (assocs (lgNodes left))
-        rightVertices = fmap fst (assocs (lgNodes right))
-
-        initialRelation =
-          Set.fromList
-            [ (x, y)
-            | x <- leftVertices
-            , y <- rightVertices
-            , pairCompatible leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes x y
-            ]
-
-        relationFix = refine leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes initialRelation
-    _ -> False
-
-pairCompatible ::
-  Map.Map G.Vertex (Map.Map Label (LocalEdgeLabel, G.Vertex)) ->
-  Map.Map G.Vertex (Map.Map Label (LocalEdgeLabel, G.Vertex)) ->
-  Map.Map G.Vertex (LocalPayloadEdgeLabel, G.Vertex) ->
-  Map.Map G.Vertex (LocalPayloadEdgeLabel, G.Vertex) ->
-  Map.Map G.Vertex LocalNode ->
-  Map.Map G.Vertex LocalNode ->
-  G.Vertex ->
-  G.Vertex ->
-  Bool
-pairCompatible leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes x y =
-  case (Map.lookup x leftNodes, Map.lookup y rightNodes) of
-    (Just nx, Just ny) ->
-      nodeCompatible nx ny
-        && case (nx, ny) of
-          (LocalPayloadSendNode{}, _) -> isJust (Map.lookup x leftPayloadOut) && isJust (Map.lookup y rightPayloadOut)
-          (LocalPayloadRecvNode{}, _) -> isJust (Map.lookup x leftPayloadOut) && isJust (Map.lookup y rightPayloadOut)
-          _ -> let sx = outAt leftOut x; sy = outAt rightOut y in Map.keysSet sx == Map.keysSet sy
-    _ -> False
-
-refine ::
-  Map.Map G.Vertex (Map.Map Label (LocalEdgeLabel, G.Vertex)) ->
-  Map.Map G.Vertex (Map.Map Label (LocalEdgeLabel, G.Vertex)) ->
-  Map.Map G.Vertex (LocalPayloadEdgeLabel, G.Vertex) ->
-  Map.Map G.Vertex (LocalPayloadEdgeLabel, G.Vertex) ->
-  Map.Map G.Vertex LocalNode ->
-  Map.Map G.Vertex LocalNode ->
-  Set.Set (G.Vertex, G.Vertex) ->
-  Set.Set (G.Vertex, G.Vertex)
-refine leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes rel =
-  let rel' = Set.filter (successorsStayIn leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes rel) rel
-   in if rel' == rel
-        then rel
-        else refine leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes rel'
-
-successorsStayIn ::
-  Map.Map G.Vertex (Map.Map Label (LocalEdgeLabel, G.Vertex)) ->
-  Map.Map G.Vertex (Map.Map Label (LocalEdgeLabel, G.Vertex)) ->
-  Map.Map G.Vertex (LocalPayloadEdgeLabel, G.Vertex) ->
-  Map.Map G.Vertex (LocalPayloadEdgeLabel, G.Vertex) ->
-  Map.Map G.Vertex LocalNode ->
-  Map.Map G.Vertex LocalNode ->
-  Set.Set (G.Vertex, G.Vertex) ->
-  (G.Vertex, G.Vertex) ->
-  Bool
-successorsStayIn leftOut rightOut leftPayloadOut rightPayloadOut leftNodes rightNodes rel (x, y) =
-  case (Map.lookup x leftNodes, Map.lookup y rightNodes) of
-    (Just nx, Just ny) ->
-      case (nx, ny) of
-        (LocalPayloadSendNode{}, _) -> payloadSuccInRel
-        (LocalPayloadRecvNode{}, _) -> payloadSuccInRel
-        _ -> branchSuccInRel
-    _ -> False
-  where
-    branchSuccInRel =
-      let sx = outAt leftOut x; sy = outAt rightOut y
-       in all (\lbl -> case (Map.lookup lbl sx, Map.lookup lbl sy) of
-                (Just (_, x'), Just (_, y')) -> Set.member (x', y') rel
-                _ -> False) (Map.keys sx)
-    payloadSuccInRel =
-      case (Map.lookup x leftPayloadOut, Map.lookup y rightPayloadOut) of
-        (Just (_, x'), Just (_, y')) -> Set.member (x', y') rel
         _ -> False
 
 data Align = Align

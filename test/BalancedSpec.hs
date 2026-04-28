@@ -7,7 +7,7 @@ import Automata
   , RecVarHints(..)
   , buildGlobalGraph
   )
-import Balanced (checkBalanced)
+import Balanced (checkBalanced, checkWeakBalanced)
 import Data.Array (array, assocs, bounds)
 import Data.Either (isLeft)
 import qualified Data.Graph as G
@@ -26,6 +26,28 @@ spec =
       expectBalanced "rec t . p -> q {loop: t}"
     it "[BAL-004] ignores unreachable nodes from the start state" $
       expectBalancedGraph (injectUnreachableUnbalancedNode baseBalanced)
+    it "[BAL-005] accepts the balanced Monte Carlo running example" $
+      expectBalanced $
+        "rec t . "
+          ++ "m -> w1 { map: m -> w1 [float]; w1 -> r [float]; "
+          ++ "m -> w2 { map: m -> w2 [float]; w2 -> r [float]; "
+          ++ "r -> m { cont: t, stop: m -> w1 { stop: m -> w2 { stop: end } } } "
+          ++ "} }"
+
+    describe "2) Weak balanced checking" $ do
+      it "[WBAL-001] balanced implies weak balanced" $
+        expectWeakBalanced "rec t . p -> q {l1: q -> r {l4: t}, l2: q -> r {l3: end}}"
+      it "[WBAL-002] accepts non-balanced protocol that is weak balanced" $
+        -- p->q branching where r appears in one branch only: not balanced, but
+        -- ready only has {p,q} since {q,r} overlaps with {p,q} owner participants
+        expectWeakBalanced "rec t . p -> q {l1: t, l2: q -> r {l3: end}}"
+      it "[WBAL-003] accepts independent pairs (weak balanced)" $
+        expectWeakBalanced
+          "a -> b { l1: c -> d { l1: end, l2: end }, l2: c -> d { l1: end, l2: end } }"
+      it "[WBAL-004] accepts simple two-party protocol" $
+        expectWeakBalanced "p -> q {l: end}"
+      it "[WBAL-005] accepts guarded recursion" $
+        expectWeakBalanced "rec t . p -> q {loop: t}"
 
 expectBalanced :: String -> Expectation
 expectBalanced source =
@@ -43,6 +65,18 @@ expectUnbalanced source =
     Left err -> expectationFailure err
     Right gg ->
       checkBalanced gg `shouldSatisfy` isLeft
+
+expectWeakBalanced :: String -> Expectation
+expectWeakBalanced source =
+  case parseAsGlobalGraph source of
+    Left err -> expectationFailure err
+    Right gg -> checkWeakBalanced gg `shouldBe` Right ()
+
+expectNotWeakBalanced :: String -> Expectation
+expectNotWeakBalanced source =
+  case parseAsGlobalGraph source of
+    Left err -> expectationFailure err
+    Right gg -> checkWeakBalanced gg `shouldSatisfy` isLeft
 
 parseAsGlobalGraph :: String -> Either String GlobalGraph
 parseAsGlobalGraph source =
@@ -106,4 +140,3 @@ injectUnreachableUnbalancedNode gg =
         ]
 
     newEdgeLabels = Map.union (ggEdgeLabels gg) addedLabels
-

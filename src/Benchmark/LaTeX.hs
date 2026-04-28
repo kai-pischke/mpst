@@ -10,8 +10,7 @@ import Benchmark.Runner
   , LocalBenchResult(..)
   , ProjVariantResult(..)
   )
-import Data.Char (isDigit)
-import Data.List (intercalate, stripPrefix)
+import Data.List (intercalate, isPrefixOf)
 import Data.Time.Clock (NominalDiffTime)
 
 -- ---------------------------------------------------------------------------
@@ -24,15 +23,24 @@ renderGlobalTable numRuns results = unlines
   [ "\\begin{table}[t]"
   , "\\centering"
   , "\\caption{Top-down projection benchmarks: median times over $" ++ show numRuns ++ "$ runs."
-  , "  IP = inductive plain, IF = inductive full,"
-  , "  CP = coinductive plain, CF = coinductive full.}"
+  , "  Here $|G|$ is the size of the global type, \\#p is its"
+  , "  number of participants, Balanced reports whether $G$ is"
+  , "  balanced ($\\checkmark$) or not ($\\times$), with the accompanying"
+  , "  time giving the cost of the balancedness check,"
+  , "  WBalanced reports whether $G$ is weak balanced, and"
+  , "  $|\\Delta_{\\textsf{pro}}|$ is the size of the projected local context."
+  , "  The Citation column gives the source citation and, where available,"
+  , "  the corresponding entry in Appendix Table~\\ref{tab:example-global-types}."
+  , "  IP = inductive plain, IF = inductive full, CP = coinductive plain,"
+  , "  and CF = coinductive full; each projection column shows the runtime"
+  , "  when projection succeeds and $\\times$ when that algorithm fails.}"
   , "\\label{tab:global-benchmarks}"
   , "\\resizebox{\\textwidth}{!}{"
   , "\\scriptsize"
-  , "\\begin{tabular}{l l r r l r r r r r}"
+  , "\\begin{tabular}{l l r r l l r r r r r}"
   , "\\toprule"
-  , "Example & Citation & $|G|$ & $|\\textsf{pt}(G)|$"
-    ++ " & $\\textsf{Bal}(G)$ & $|\\Delta_{\\textsf{pro}}|$"
+  , "Example & Citation & $|G|$ & \\#p"
+    ++ " & Balanced & WBalanced & $|\\Delta_{\\textsf{pro}}|$"
     ++ " & IP & IF & CP & CF \\\\"
   , "\\midrule"
   , intercalate "\n" (map renderGlobalRow results)
@@ -44,18 +52,19 @@ renderGlobalTable numRuns results = unlines
 
 renderGlobalRow :: GlobalBenchResult -> String
 renderGlobalRow br =
-  let name = formatNameLaTeX (gbrName br)
-      cite = formatCite (gbrCitation br)
+  let name = gbrDisplayName br
+      cite = formatCitationCell (gbrCitation br) (appendixRefForName (gbrName br))
       gSize = show (gbrGlobalSize br)
       nPart = show (gbrNumParticipants br)
-      bal = (if gbrBalanced br then "$\\checkmark$" else "$\\times$")
+      bal = (if gbrBalanced br then "{\\color{green!50!black}$\\checkmark$}" else "{\\color{red!70!black}$\\times$}")
             ++ " " ++ formatTime (gbrBalancedTime br)
+      wbal = if gbrWeakBalanced br then "{\\color{green!50!black}$\\checkmark$}" else "{\\color{red!70!black}$\\times$}"
       projSize = maybe "---" show (gbrProjectedSize br)
       ip  = fmtVariant (gbrIP br)
       ifu = fmtVariant (gbrIF br)
       cp  = fmtVariant (gbrCP br)
       cf  = fmtVariant (gbrCF br)
-   in intercalate " & " [name, cite, gSize, nPart, bal, projSize, ip, ifu, cp, cf]
+   in intercalate " & " [name, cite, gSize, nPart, bal, wbal, projSize, ip, ifu, cp, cf]
         ++ " \\\\"
 
 -- ---------------------------------------------------------------------------
@@ -67,15 +76,32 @@ renderLocalTable :: Int -> [LocalBenchResult] -> String
 renderLocalTable numRuns results = unlines
   [ "\\begin{table}[t]"
   , "\\centering"
-  , "\\caption{Bottom-up synthesis benchmarks: median times over $" ++ show numRuns ++ "$ runs.}"
+  , "\\caption{Bottom-up synthesis benchmarks: median times over $" ++ show numRuns ++ "$ runs."
+  , "  Here $|\\Delta|$ is the size of the input local context,"
+  , "  \\#p is its number of participants,"
+  , "  $\\textsf{safe}$, $\\textsf{df}$, and $\\textsf{live}$ report whether"
+  , "  the context is safe, deadlock-free, and live respectively"
+  , "  ($\\checkmark$/$\\times$),"
+  , "  {\\sf mpstk} is the time taken to check these properties,"
+  , "  $|G_{\\textsf{inf}}|$ is the size of the synthesised global type,"
+  , "  Balanced reports whether the synthesised"
+  , "  global type is balanced ($\\checkmark$/$\\times$),"
+  , "  WBalanced reports whether it is weak balanced ($\\checkmark$/$\\times$), and"
+  , "  Synth.\\ is the synthesis time."
+  , "  The Citation column gives the source citation and, where available,"
+  , "  the corresponding appendix reference, including"
+  , "  Table~\\ref{tab:example-global-types} and"
+  , "  Example~\\ref{ex:binary-counter}."
+  , "  Entries marked ``---'' indicate cases where the tool exceeded available"
+  , "  resources.}"
   , "\\label{tab:local-benchmarks}"
   , "\\resizebox{\\textwidth}{!}{"
   , "\\scriptsize"
-  , "\\begin{tabular}{l l r r c c r r c r}"
+  , "\\begin{tabular}{l l r r c c c r r c c r}"
   , "\\toprule"
-  , "Example & Citation & $|\\Delta|$ & $|\\textsf{dom}(\\Delta)|$"
-    ++ " & $\\textsf{safe}$ & $\\textsf{live}$"
-    ++ " & mpstk & $|G_{\\textsf{inf}}|$ & $\\textsf{Bal}(G_{\\textsf{inf}})$ & Synth. \\\\"
+  , "Example & Citation & $|\\Delta|$ & \\#p"
+    ++ " & $\\textsf{safe}$ & $\\textsf{df}$ & $\\textsf{live}$"
+    ++ " & mpstk & $|G_{\\textsf{inf}}|$ & Balanced & WBalanced & Synth. \\\\"
   , "\\midrule"
   , intercalate "\n" (map renderLocalRow results)
   , "\\bottomrule"
@@ -86,17 +112,19 @@ renderLocalTable numRuns results = unlines
 
 renderLocalRow :: LocalBenchResult -> String
 renderLocalRow br =
-  let name = formatNameLaTeX (lbrName br)
-      cite = formatCite (lbrCitation br)
+  let name = lbrDisplayName br
+      cite = formatCitationCell (lbrCitation br) (appendixRefForName (lbrName br))
       ctxSize = show (lbrContextSize br)
       nPart = show (lbrNumParticipants br)
       safe = fmtBool (lbrSafe br)
+      df   = fmtBool (lbrDeadlockFree br)
       live = fmtBool (lbrLive br)
       mpstk = maybe "---" formatTime (lbrMpstkTime br)
       infSize = maybe "---" show (lbrInferredSize br)
       infBal = fmtBool (lbrInferredBalanced br)
+      infWBal = fmtBool (lbrInferredWeakBalanced br)
       synth = maybe "---" formatTime (lbrSynthesisTime br)
-   in intercalate " & " [name, cite, ctxSize, nPart, safe, live, mpstk, infSize, infBal, synth]
+   in intercalate " & " [name, cite, ctxSize, nPart, safe, df, live, mpstk, infSize, infBal, infWBal, synth]
         ++ " \\\\"
 
 -- ---------------------------------------------------------------------------
@@ -111,6 +139,8 @@ renderLaTeXDocument numRuns globalResults localResults = unlines
   , "\\usepackage{amsmath}"
   , "\\usepackage{amssymb}"
   , "\\usepackage{graphicx}"
+  , "\\usepackage{xcolor}"
+  , "\\providecommand{\\exampletabref}[1]{Appendix example (#1)}"
   , "\\begin{document}"
   , ""
   , renderGlobalTable numRuns globalResults
@@ -124,32 +154,67 @@ renderLaTeXDocument numRuns globalResults localResults = unlines
 -- Formatting helpers
 -- ---------------------------------------------------------------------------
 
--- | Format a citation with optional example reference.
-formatCite :: Maybe Citation -> String
-formatCite Nothing = "---"
-formatCite (Just c) = case citeRef c of
+-- | Format a source citation with optional example reference.
+formatSourceCite :: Maybe Citation -> Maybe String
+formatSourceCite Nothing = Nothing
+formatSourceCite (Just c) = Just $ case citeRef c of
   Nothing  -> "\\cite{" ++ citeKey c ++ "}"
   Just ref -> "\\cite[" ++ ref ++ "]{" ++ citeKey c ++ "}"
+
+formatCitationCell :: Maybe Citation -> Maybe String -> String
+formatCitationCell cite appRef =
+  case (formatSourceCite cite, appRef) of
+    (Nothing, Nothing) -> "---"
+    (Just c, Nothing)  -> c
+    (Nothing, Just r)  -> r
+    (Just c, Just r)   -> c ++ "; " ++ r
+
+appendixRefForName :: String -> Maybe String
+appendixRefForName name
+  | name == "G_oe"              = Just "\\exampletabref{a}"
+  | name == "G_oa"              = Just "\\exampletabref{b}"
+  | name == "G_tb"              = Just "\\exampletabref{c}"
+  | "G_mr-" `isPrefixOf` name   = Just "\\exampletabref{d}"
+  | "G_iw-" `isPrefixOf` name   = Just "\\exampletabref{e}"
+  | name == "G_itp"             = Just "\\exampletabref{f}"
+  | name == "G_sta"             = Just "\\exampletabref{g}"
+  | name == "G_bta"             = Just "\\exampletabref{h}"
+  | name == "G_ip"              = Just "\\exampletabref{i}"
+  | name == "G_if"              = Just "\\exampletabref{j}"
+  | name == "G_ring"            = Just "\\exampletabref{k}"
+  | name == "G_adder"           = Just "\\exampletabref{l}"
+  | name == "G_company"         = Just "\\exampletabref{m}"
+  | name == "G_ow"              = Just "\\exampletabref{n}"
+  | name == "G_dl"              = Just "\\exampletabref{o}"
+  | name == "G_ev"              = Just "\\exampletabref{p}"
+  | name == "G_cf-2"            = Just "\\exampletabref{q}"
+  | name == "G_cf-3"            = Just "\\exampletabref{r}"
+  | name == "G_cf-4"            = Just "\\exampletabref{s}"
+  | name == "G_cf-5"            = Just "\\exampletabref{t}"
+  | "BinCtr-" `isPrefixOf` name = Just "Example~\\ref{ex:binary-counter}"
+  | otherwise                   = Nothing
 
 -- | Format a projection variant: time if ok, ✗ if failed, --- if timed out.
 fmtVariant :: Maybe ProjVariantResult -> String
 fmtVariant Nothing = "---"
 fmtVariant (Just pv)
   | pvAllOk pv = formatTime (pvTime pv)
-  | otherwise   = "$\\times$"
+  | otherwise   = "{\\color{red!70!black}$\\times$}"
 
 -- | Format a boolean result.
 fmtBool :: Maybe Bool -> String
 fmtBool Nothing      = "---"
-fmtBool (Just True)  = "$\\checkmark$"
-fmtBool (Just False) = "$\\times$"
+fmtBool (Just True)  = "{\\color{green!50!black}$\\checkmark$}"
+fmtBool (Just False) = "{\\color{red!70!black}$\\times$}"
 
 -- | Format a time duration adaptively.
+-- Microsecond results are uncoloured; millisecond and second results are
+-- coloured to stand out.
 formatTime :: NominalDiffTime -> String
 formatTime dt
   | us < 1000    = showFixed 1 us ++ "\\,\\textmu s"
-  | us < 1000000 = showFixed 1 (us / 1000) ++ "\\,ms"
-  | otherwise     = showFixed 2 (us / 1000000) ++ "\\,s"
+  | us < 1000000 = "{\\color{blue!70!black}" ++ showFixed 1 (us / 1000) ++ "\\,ms}"
+  | otherwise     = "{\\color{blue!70!black}" ++ showFixed 2 (us / 1000000) ++ "\\,s}"
   where
     us = realToFrac dt * 1000000 :: Double
 
@@ -171,39 +236,3 @@ padLeft :: Int -> Char -> String -> String
 padLeft n c s
   | length s >= n = s
   | otherwise     = replicate (n - length s) c ++ s
-
--- | Format a benchmark name for LaTeX using math-mode macros.
---
--- Naming conventions:
---   G_xxx       → $\G[xxx]$                      (global type examples)
---   DeltaN      → $\ctx[N]$                       (context examples)
---   C_cf-N      → $C_{\textsf{cf}}(N)$             (conflict-free context families)
---   C_cfs-N     → $C_{\textsf{cfs}}(N)$            (simplified conflict-free)
---   BinCtr-N    → $\textsf{BinCtr}(N)$             (binary counter)
---   MapReduce-N → $\textsf{MapReduce}(N)$          (map-reduce)
---   other       → escaped plain text
-formatNameLaTeX :: String -> String
-formatNameLaTeX name
-  | Just sub <- stripPrefix "G_" name =
-      "$\\G[" ++ sub ++ "]$"
-  | Just digits <- stripPrefix "Delta" name, all isDigit digits, not (null digits) =
-      "$\\ctx[" ++ digits ++ "]$"
-  | Just rest <- stripPrefix "C_cfs-" name =
-      "$C_{\\textsf{cfs}}(" ++ rest ++ ")$"
-  | Just rest <- stripPrefix "C_cf-" name =
-      "$C_{\\textsf{cf}}(" ++ rest ++ ")$"
-  | Just rest <- stripPrefix "BinCtr-" name =
-      "$\\textsf{BinCtr}(" ++ rest ++ ")$"
-  | Just rest <- stripPrefix "MapReduce-" name =
-      "$\\textsf{MapReduce}(" ++ rest ++ ")$"
-  | otherwise = escapeLaTeX name
-
--- | Escape special LaTeX characters.
-escapeLaTeX :: String -> String
-escapeLaTeX = concatMap escapeChar
-  where
-    escapeChar '_' = "\\_"
-    escapeChar '&' = "\\&"
-    escapeChar '%' = "\\%"
-    escapeChar '#' = "\\#"
-    escapeChar c   = [c]

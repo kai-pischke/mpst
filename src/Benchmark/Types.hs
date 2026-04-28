@@ -20,6 +20,7 @@ data Citation = Citation
 
 data GlobalExample = GlobalExample
   { geName             :: String
+  , geDisplayName      :: String   -- ^ Human-readable name for tables
   , geCitation         :: Maybe Citation
   , geGlobalSource     :: String
   , geParticipantNames :: [String]
@@ -27,19 +28,22 @@ data GlobalExample = GlobalExample
 
 data LocalExample = LocalExample
   { leName         :: String
+  , leDisplayName  :: String   -- ^ Human-readable name for tables
   , leCitation     :: Maybe Citation
   , leParticipants :: [(String, String)]  -- ^ (participant name, local type source)
   }
 
 data ParsedGlobalExample = ParsedGlobalExample
-  { pgeName        :: String
-  , pgeCitation    :: Maybe Citation
-  , pgeGlobalType  :: GlobalType
+  { pgeName         :: String
+  , pgeDisplayName  :: String
+  , pgeCitation     :: Maybe Citation
+  , pgeGlobalType   :: GlobalType
   , pgeParticipants :: [Participant]
   }
 
 data ParsedLocalExample = ParsedLocalExample
   { pleName             :: String
+  , pleDisplayName      :: String
   , pleCitation         :: Maybe Citation
   , pleContext          :: Map.Map Participant LocalType
   , pleParticipantOrder :: [Participant]
@@ -51,9 +55,10 @@ parseGlobalExample ex = do
     Left err -> Left ("Global type parse error in " ++ geName ex ++ ": " ++ err)
     Right g  -> Right g
   Right ParsedGlobalExample
-    { pgeName       = geName ex
-    , pgeCitation   = geCitation ex
-    , pgeGlobalType = gt
+    { pgeName        = geName ex
+    , pgeDisplayName = geDisplayName ex
+    , pgeCitation    = geCitation ex
+    , pgeGlobalType  = gt
     , pgeParticipants = map Participant (geParticipantNames ex)
     }
 
@@ -62,6 +67,7 @@ parseLocalExample ex = do
   locals <- mapM parseOne (leParticipants ex)
   Right ParsedLocalExample
     { pleName             = leName ex
+    , pleDisplayName      = leDisplayName ex
     , pleCitation         = leCitation ex
     , pleContext          = Map.fromList [(Participant n, lt) | (n, lt) <- locals]
     , pleParticipantOrder = map (Participant . fst) (leParticipants ex)
